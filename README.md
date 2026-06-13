@@ -7,7 +7,21 @@
 [![Maintained](https://img.shields.io/badge/Maintained%20by-RicknotDev-brightgreen)](https://github.com/RicknotDev)
 
 Universal Linux driver for AIC8800D80 Wi-Fi chipsets with DKMS and multi-distro support.
+About this fork
 
+This repository is a community-maintained fork of Shenmintao's original AIC8800 driver project.
+
+The goal of this fork is to provide a more stable experience on modern Linux systems by improving compatibility across multiple distributions, supporting newer kernel versions, and reducing the need for manual configuration.
+
+Key improvements include:
+
+Support for Linux kernels 6.0 through 7.x
+Improved Bluetooth functionality with minimal manual setup
+Better module loading behavior across different desktop environments
+Installation support for multiple distributions, including Debian/Ubuntu, Fedora, RHEL/CentOS, Arch Linux, openSUSE, Alpine Linux, Void Linux, and Solus
+Ongoing maintenance and compatibility fixes for newer kernel releases
+
+Credits: This project would not exist without the work of the original author, Shenmintao. This fork aims to build upon that foundation and keep the driver usable for current Linux users.
 ---
 
 ## 📋 Description
