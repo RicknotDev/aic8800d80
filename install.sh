@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #############################################################################
-# AIC8800D80 WiFi 6 Driver - Universal Installer (DKMS) - VERSÃO CORRIGIDA
+# AIC8800D80 WiFi 6 Driver - Universal Installer (DKMS) - CORREGIDO
 # Version: 2.0.4
 # Date: 2025-12-30
 # Description: Multi-distribution installer with DKMS support
-# Supported: Debian/Ubuntu, Fedora/RHEL, Arch Linux, and derivatives
+# Supported: Debian/Ubuntu, Fedora/RHEL, Arch Linux, Alpine, Void, Solus, and derivatives
 # FIX: Corrected DKMS module configuration for aic8800_fdrv
 #############################################################################
 
@@ -28,6 +28,46 @@ readonly LOG_FILE="/tmp/aic8800d80_install.log"
 
 # Script directory (where the script is located)
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Script options
+DRY_RUN=false
+FORCE_INSTALL=false
+SKIP_DEPENDENCIES=false
+
+print_usage() {
+    cat <<EOF
+Usage: sudo ./install.sh [options]
+
+Options:
+  --force         Continue installation even if the kernel is newer than tested (7.x)
+  --skip-deps     Skip automatic dependency installation and continue if you installed them manually
+  --help          Show this help message and exit
+EOF
+}
+
+parse_args() {
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --force)
+                FORCE_INSTALL=true
+                shift
+                ;;
+            --skip-deps)
+                SKIP_DEPENDENCIES=true
+                shift
+                ;;
+            --help|-h)
+                print_usage
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1"
+                print_usage
+                exit 1
+                ;;
+        esac
+    done
+}
 
 #############################################################################
 # Logging and Output Functions
@@ -147,6 +187,30 @@ check_secure_boot() {
     fi
 }
 
+check_kernel_version() {
+    print_step "Checking kernel version compatibility..."
+    local kernel_version
+    kernel_version=$(uname -r | cut -d- -f1)
+    IFS='.' read -r kernel_major kernel_minor kernel_patch <<< "$kernel_version"
+
+    if [[ "$kernel_major" -ge 7 ]]; then
+        print_warning "Kernel $kernel_version is newer than the tested range for this driver."
+        echo "The driver is tested on kernel 6.x. Kernel 7.x may not be supported and installation may fail."
+        if [[ "$FORCE_INSTALL" != true ]]; then
+            echo "Use --force to continue at your own risk."
+            read -p "Continue installation? (y/N): " choice
+            if [[ ! "$choice" =~ ^[Yy]$ ]]; then
+                print_info "Installation cancelled by user due to unsupported kernel version."
+                exit 0
+            fi
+        else
+            print_warning "Force install enabled; continuing despite unsupported kernel version."
+        fi
+    else
+        print_success "Kernel version $kernel_version is within the tested compatibility range."
+    fi
+}
+
 #############################################################################
 # Package Manager Detection and Dependency Installation
 #############################################################################
@@ -172,15 +236,25 @@ detect_package_manager() {
     elif command -v zypper &> /dev/null; then
         pkg_manager="zypper"
         distro_name="openSUSE"
+    elif command -v apk &> /dev/null; then
+        pkg_manager="apk"
+        distro_name="Alpine Linux"
+    elif command -v xbps-install &> /dev/null; then
+        pkg_manager="xbps"
+        distro_name="Void Linux"
+    elif command -v eopkg &> /dev/null; then
+        pkg_manager="eopkg"
+        distro_name="Solus"
     else
         print_error "No supported package manager found!"
         echo ""
-        echo "Please install the following packages manually:"
+        echo "Please install the following packages manually or re-run with --skip-deps after installing them:"
         echo "  - dkms"
-        echo "  - build-essential / base-devel / development tools"
+        echo "  - gcc, make, and other build tools"
         echo "  - linux-headers for your kernel version"
         echo "  - mokutil (optional, for Secure Boot detection)"
         echo ""
+        echo "If you already installed them, run: sudo ./install.sh --skip-deps"
         exit 1
     fi
     
@@ -224,6 +298,29 @@ install_dependencies() {
         zypper)
             print_info "Installing: dkms, gcc, make, kernel-devel, mokutil..."
             zypper install -y dkms make gcc kernel-devel mokutil >> "$LOG_FILE" 2>&1
+            ;;
+            
+        apk)
+            print_info "Updating package database..."
+            apk update >> "$LOG_FILE" 2>&1
+            
+            print_info "Installing: dkms, build-base, linux-headers..."
+            apk add --no-cache dkms build-base linux-headers >> "$LOG_FILE" 2>&1
+            ;;            
+        xbps)
+            print_info "Updating package database..."
+            xbps-install -Sy >> "$LOG_FILE" 2>&1
+            
+            print_info "Installing: dkms, gcc, make, linux-headers..."
+            xbps-install -y dkms gcc make linux-headers >> "$LOG_FILE" 2>&1
+            ;;
+            
+        eopkg)
+            print_info "Refreshing package database..."
+            eopkg update-repo >> "$LOG_FILE" 2>&1
+            
+            print_info "Installing: dkms, gcc, make, linux-headers..."
+            eopkg install -y dkms gcc make linux-headers >> "$LOG_FILE" 2>&1
             ;;
             
         *)
@@ -541,6 +638,8 @@ show_final_instructions() {
 #############################################################################
 
 main() {
+    parse_args "$@"
+
     # Initialize log file
     rm -f "$LOG_FILE" 2>/dev/null || true
     touch "$LOG_FILE" 2>/dev/null || true
@@ -563,13 +662,20 @@ main() {
     # Step 2: Check Secure Boot
     check_secure_boot
     
-    # Step 3: Detect package manager
+    # Step 3: Check the kernel version compatibility
+    check_kernel_version
+    
+    # Step 4: Detect package manager
     detect_package_manager
     
-    # Step 4: Install dependencies
-    install_dependencies "$DETECTED_PKG_MANAGER"
+    # Step 5: Install dependencies
+    if [ "$SKIP_DEPENDENCIES" = true ]; then
+        print_warning "Skipping dependency installation as requested. Make sure required packages are installed manually."
+    else
+        install_dependencies "$DETECTED_PKG_MANAGER"
+    fi
     
-    # Step 5: Install firmware
+    # Step 6: Install firmware
     install_firmware
     
     # Step 6: Create DKMS configuration
