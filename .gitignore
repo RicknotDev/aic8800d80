@@ -1,0 +1,18 @@
+# Kernel module build artifacts
+*.o
+*.ko
+*.ko.xz
+*.cmd
+*.mod
+*.mod.c
+*.mod.o
+*.symvers
+Module.symvers
+Module.markers
+modules.order
+.modules.order.cmd
+.Module.symvers.cmd
+.module-common.o
+..module-common.o.cmd
+modules.builtin
+modules.builtin.modinfo
