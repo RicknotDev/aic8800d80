@@ -30,7 +30,6 @@ readonly LOG_FILE="/var/log/aic8800-install.log"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Script options
-DRY_RUN=false
 FORCE_INSTALL=false
 SKIP_DEPENDENCIES=false
 
@@ -979,13 +978,11 @@ main() {
     # Step 3: Check the kernel version compatibility
     check_kernel_version
     
-    # Step 4: Detect package manager
-    detect_package_manager
-    
-    # Step 5: Install dependencies
+    # Steps 4-5: Detect package manager and install dependencies
     if [ "$SKIP_DEPENDENCIES" = true ]; then
         print_warning "Skipping dependency installation as requested. Make sure required packages are installed manually."
     else
+        detect_package_manager
         install_dependencies "$DETECTED_PKG_MANAGER"
     fi
 
