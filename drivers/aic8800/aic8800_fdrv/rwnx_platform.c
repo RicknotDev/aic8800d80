@@ -609,6 +609,54 @@ static int rwnx_plat_bin_fw_upload(struct rwnx_plat *rwnx_plat, u8* fw_addr,
 #define MD5(x) x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8],x[9],x[10],x[11],x[12],x[13],x[14],x[15]
 #define MD5PINRT "file md5:%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x\r\n"
 
+#ifdef CONFIG_USE_FW_REQUEST
+static int aic_request_firmware(const struct firmware **fw, const char *name,
+                               struct device *device)
+{
+#if defined(CONFIG_PLATFORM_UBUNTU) && defined(AICWF_USB_SUPPORT)
+    struct aicwf_bus *bus = device ? dev_get_drvdata(device) : NULL;
+    struct aic_usb_dev *usbdev = bus ? bus->bus_priv.usb : NULL;
+    const char *dir = NULL;
+    char path[256];
+    int ret;
+
+    if (usbdev) {
+        switch (usbdev->chipid) {
+        case PRODUCT_ID_AIC8801:
+            dir = "aic8800";
+            break;
+        case PRODUCT_ID_AIC8800DC:
+        case PRODUCT_ID_AIC8800DW:
+            dir = "aic8800DC";
+            break;
+        case PRODUCT_ID_AIC8800D81:
+            dir = "aic8800D80";
+            break;
+        case PRODUCT_ID_AIC8800D81X2:
+        case PRODUCT_ID_AIC8800D89X2:
+            dir = "aic8800D80X2";
+            break;
+        case PRODUCT_ID_AIC8800D80N:
+            dir = "aic8800D80N";
+            break;
+        case PRODUCT_ID_AIC8800DLN:
+            dir = "aic8800DLN";
+            break;
+        }
+    }
+    if (dir) {
+        if (snprintf(path, sizeof(path), "%s/%s", dir, name) >= sizeof(path))
+            return -ENAMETOOLONG;
+        ret = request_firmware(fw, path, device);
+        /* Keep flat firmware layouts, without hiding other load errors. */
+        if (ret != -ENOENT)
+            return ret;
+    }
+#endif
+    return request_firmware(fw, name, device);
+}
+#endif
+
 static int rwnx_load_firmware(u32 **fw_buf, const char *name, struct device *device)
 {
 
@@ -623,25 +671,27 @@ static int rwnx_load_firmware(u32 **fw_buf, const char *name, struct device *dev
 
 	AICWFDBG(LOGINFO, "%s: request firmware = %s \n", __func__ ,name);
 
-	ret = request_firmware(&fw, name, NULL);
+	*fw_buf = NULL;
+	ret = aic_request_firmware(&fw, name, device);
 
 	if (ret < 0) {
 		AICWFDBG(LOGERROR, "Load %s fail\n", name);
 		release_firmware(fw);
-		return -1;
+		return ret;
 	}
 
-	size = fw->size;
-	dst = (u32 *)fw->data;
-
-	if (size <= 0) {
+	if (!fw->size || fw->size > INT_MAX) {
 		AICWFDBG(LOGERROR, "wrong size of firmware file\n");
 		release_firmware(fw);
-		return -1;
+		return -EINVAL;
 	}
-
+	size = fw->size;
+	dst = (u32 *)fw->data;
 	buffer = vmalloc(size);
-	memset(buffer, 0, size);
+	if (!buffer) {
+		release_firmware(fw);
+		return -ENOMEM;
+	}
 	memcpy(buffer, dst, size);
 
 	*fw_buf = buffer;
@@ -785,7 +835,7 @@ int rwnx_request_firmware_common(struct rwnx_hw *rwnx_hw, u32** buffer, const ch
 
     AICWFDBG(LOGINFO, "### Load file %s\n", filename);
 
-    size = rwnx_load_firmware(buffer, filename, NULL);
+    size = rwnx_load_firmware(buffer, filename, rwnx_hw->dev);
 
     return size;
 }
@@ -1669,7 +1719,8 @@ static int rwnx_plat_patch_load(struct rwnx_hw *rwnx_hw)
     if(rwnx_hw->usbdev->chipid == PRODUCT_ID_AIC8800DC ||
         rwnx_hw->usbdev->chipid == PRODUCT_ID_AIC8800DW){
 #ifndef ANDROID_PLATFORM
-        sprintf(aic_fw_path, "%s/%s", aic_fw_path, "aic8800DC");
+        if (strlcat(aic_fw_path, "/aic8800DC", sizeof(aic_fw_path)) >= sizeof(aic_fw_path))
+            return -ENAMETOOLONG;
 #endif
         AICWFDBG(LOGINFO, "testmode=%d\n", testmode);
         if (chip_sub_id == 0) {
@@ -1808,7 +1859,8 @@ static int rwnx_plat_patch_load(struct rwnx_hw *rwnx_hw)
         }
     } else if(rwnx_hw->usbdev->chipid == PRODUCT_ID_AIC8800D80N) {
 #ifndef ANDROID_PLATFORM
-        sprintf(aic_fw_path, "%s/%s", aic_fw_path, "aic8800D80N");
+        if (strlcat(aic_fw_path, "/aic8800D80N", sizeof(aic_fw_path)) >= sizeof(aic_fw_path))
+            return -ENAMETOOLONG;
 #endif
         if (testmode == FW_NORMAL_MODE) {
             ret = aicwf_plat_patch_load_8800d80n(rwnx_hw);
@@ -1838,7 +1890,8 @@ static int rwnx_plat_patch_load(struct rwnx_hw *rwnx_hw)
     }
     else if(rwnx_hw->usbdev->chipid == PRODUCT_ID_AIC8800DLN) {
 #ifndef ANDROID_PLATFORM
-        sprintf(aic_fw_path, "%s/%s", aic_fw_path, "aic8800DLN");
+        if (strlcat(aic_fw_path, "/aic8800DLN", sizeof(aic_fw_path)) >= sizeof(aic_fw_path))
+            return -ENAMETOOLONG;
 #endif
         if (testmode == FW_NORMAL_MODE) {
             aicwf_patch_config_8800dln(rwnx_hw);
@@ -3969,6 +4022,7 @@ struct device *rwnx_platform_get_dev(struct rwnx_plat *rwnx_plat)
 }
 
 
+#ifndef AICWF_USB_SUPPORT
 #ifndef CONFIG_RWNX_SDM
 MODULE_FIRMWARE(RWNX_AGC_FW_NAME);
 MODULE_FIRMWARE(RWNX_FCU_FW_NAME);
@@ -3978,5 +4032,6 @@ MODULE_FIRMWARE(RWNX_MAC_FW_NAME);
 #ifndef CONFIG_RWNX_TL4
 MODULE_FIRMWARE(RWNX_MAC_FW_NAME2);
 #endif
+#endif /* !AICWF_USB_SUPPORT */
 
 

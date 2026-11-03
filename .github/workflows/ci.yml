@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  KERNEL_BUILD_PACKAGES: bc bison build-essential flex kmod libelf-dev libssl-dev
+
+jobs:
+  checks:
+    name: Scripts and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check shell syntax
+        run: |
+          for script in $(git ls-files '*.sh'); do
+            bash -n "$script"
+          done
+      - name: Run ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          git ls-files '*.sh' | xargs shellcheck --severity=error
+      - name: Run installer tests
+        run: |
+          python3 tests/installer/test_install.py
+          python3 tests/installer/test_udev.py
+      - name: Run firmware tests
+        run: |
+          python3 tests/firmware/test_firmware.py
+          python3 tests/firmware/test_request_firmware.py
+
+  build:
+    name: Build on Linux ${{ matrix.kernel }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 6.12.100 and 6.12.115 sit on each side of the set_monitor_channel backport.
+        kernel:
+          - 6.1.191
+          - 6.6.161
+          - 6.8.12
+          - 6.12.100
+          - 6.12.115
+          - 6.18.60
+          - 7.0.14
+          - 7.1.13
+          - 7.2.15
+          - 7.3.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $KERNEL_BUILD_PACKAGES
+      - name: Prepare kernel
+        run: bash ci/prepare-kernel.sh "${{ matrix.kernel }}" "$RUNNER_TEMP/kernel"
+      - name: Build modules
+        run: bash ci/build-modules.sh "$RUNNER_TEMP/kernel"
+      - name: Check firmware declarations
+        run: python3 tests/firmware/test_firmware.py --modules drivers/aic8800
+
+  dkms:
+    name: DKMS on the runner kernel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install DKMS and headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dkms "linux-headers-$(uname -r)"
+      - name: Add, build and install
+        run: |
+          sudo mkdir -p /usr/src/aic8800-1.0.0
+          git archive HEAD | sudo tar -x -C /usr/src/aic8800-1.0.0
+          sudo dkms add -m aic8800 -v 1.0.0
+          sudo dkms build -m aic8800 -v 1.0.0 -k "$(uname -r)"
+          sudo dkms install -m aic8800 -v 1.0.0 -k "$(uname -r)"
+          dkms status aic8800/1.0.0 | grep -q installed
+      - name: Show DKMS build log
+        if: failure()
+        run: sudo cat /var/lib/dkms/aic8800/1.0.0/build/make.log
+
+  mainline:
+    name: Build on latest mainline
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # An early warning: a new kernel can break the build before the driver adapts.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $KERNEL_BUILD_PACKAGES
+      - name: Prepare kernel
+        run: bash ci/prepare-kernel.sh mainline "$RUNNER_TEMP/kernel"
+      - name: Build modules
+        run: bash ci/build-modules.sh "$RUNNER_TEMP/kernel"

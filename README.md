@@ -1,891 +1,319 @@
-# 🛜 AIC8800D80 Linux Driver
-
-[![License: GPL v2](https://img.shields.io/badge/License-GPLv2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
-[![Kernel Support](https://img.shields.io/badge/Kernel-6.x-green.svg)](https://kernel.org/)
-[![Distros Supported](https://img.shields.io/badge/Distros-8-blueviolet.svg)](#-compatibility--distros-and-package-managers)
-[![Language](https://img.shields.io/badge/Language-C-00599C.svg)](https://en.wikipedia.org/wiki/C_(programming_language))
-[![Maintained](https://img.shields.io/badge/Maintained%20by-RicknotDev-brightgreen)](https://github.com/RicknotDev)
-
-Universal Linux driver for AIC8800D80 Wi-Fi chipsets with DKMS and multi-distro support.
-About this fork
-
-This repository is a community-maintained fork of Shenmintao's original AIC8800 driver project.
-
-The goal of this fork is to provide a more stable experience on modern Linux systems by improving compatibility across multiple distributions, supporting newer kernel versions, and reducing the need for manual configuration.
-
-Key improvements include:
-
-Support for Linux kernels 6.0 through 7.x
-Improved Bluetooth functionality with minimal manual setup
-Better module loading behavior across different desktop environments
-Installation support for multiple distributions, including Debian/Ubuntu, Fedora, RHEL/CentOS, Arch Linux, openSUSE, Alpine Linux, Void Linux, and Solus
-Ongoing maintenance and compatibility fixes for newer kernel releases
-
-Credits: This project would not exist without the work of the original author, Shenmintao. This fork aims to build upon that foundation and keep the driver usable for current Linux users.
----
-
-## 📋 Description
-
-This project provides a **complete kernel driver** for Wi-Fi devices based on the **AIC8800D80 chipset**, compatible with cards like Tenda U11 and AX913B. The driver includes:
-
-- **Automatic installation** via DKMS to maintain compatibility after kernel updates
-- **Multi-platform support** for 8 major Linux distributions
-- **Embedded firmware** with configurations for multiple chipset variants
-- **Automatic udev rules** for better system integration
-
-### Why use this driver?
-
-- ✅ Compatible with kernels **6.x** (7.x with `--force`)
-- ✅ **Automatic installation** on Debian, Fedora, Arch, Alpine, and more
-- ✅ **No hidden dependencies** — automatically detects what you need
-- ✅ Support for **Vendor ID 368B** (Pandora clones)
-- ✅ **Integrated DKMS** — automatically reinstalls after kernel updates
-
----
-
-## ⚡ Key Features
-
-- 🔧 **Automatic installation with DKMS** — recompiles after kernel updates
-- 📦 **Pre-packaged firmware** for D80, D80N, D80X2, DC, DLN variants
-- 🐧 **8 distributions supported** — Debian, Fedora, Arch, Alpine, Void, Solus, openSUSE, CentOS
-- 🛡️ **Secure Boot detection** — warns if it may affect module loading
-- 🔌 **Integrated udev rules** — support for automatic USB mode switching
-- 📊 **Detailed logs** — installation with clear diagnostic messages
-- ⏭️ **Kernel compatibility** — automatic version checking before install
-
----
-
-## 📊 Compatibility — Distros and Package Managers
-
-| Distribution         | Package Manager | Status     | Notes                          |
-|----------------------|-----------------|------------|--------------------------------|
-| Debian / Ubuntu      | apt             | ✅ Stable  | Tested on Ubuntu 25.04, Debian 12 |
-| Fedora / RHEL        | dnf             | ✅ Stable  | RHEL 8+ compatible             |
-| CentOS / RHEL legacy | yum             | ✅ Stable  | Requires EPEL enabled          |
-| Arch Linux           | pacman          | ✅ Stable  | Includes linux-headers         |
-| openSUSE             | zypper          | ✅ Stable  | Leap and Tumbleweed           |
-| Alpine Linux         | apk             | ✅ Stable  | Requires edge repository       |
-| Void Linux           | xbps-install    | ✅ Stable  | Compilation from source        |
-| Solus                | eopkg           | ✅ Stable  | Experimental support           |
-
-### ℹ️ Unsupported distributions
-
-If your distro is not listed, you can install the dependencies manually and then run:
-
-```bash
-sudo ./install.sh --skip-deps
-```
-
-### Distribution-specific notes
-
-- **Alpine Linux**: Requires updating repository with `edge`
-- **Void Linux / Solus**: Compiler may take longer on first run
-- All distros require `sudo` access or root permission
-
----
-
-## 📋 Prerequisites
-
-### Required software
-
-| Component       | Minimum Version | Purpose                              |
-|-----------------|-----------------|--------------------------------------|
-| Linux Kernel    | 6.0.0           | Base operating system                |
-| DKMS            | 3.0             | Dynamic Kernel Module Support        |
-| Compiler (gcc)  | 9.x             | Build tools                          |
-| Make            | 4.0             | Build system                         |
-| Linux Headers   | Kernel-matched  | Kernel development files             |
-
-### Optional tools
-
-- `mokutil` — for Secure Boot management
-- `udevadm` — for reloading udev rules (usually included)
-
-### Disk space
-
-- **Minimum**: 500 MB (driver + firmware)
-- **Recommended**: 2 GB (compilation space)
-
----
-
-## 🚀 Installation
-
-### Method 1: Automatic Installation (Recommended)
-
-The fastest way for most users:
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/RicknotDev/aic8800d80.git
-cd aic8800d80
-
-# 2. Make installer executable
-chmod +x install.sh
-
-# 3. Run installation
-sudo ./install.sh
-```
-
-The script will detect your distro, install necessary dependencies, and configure DKMS automatically.
-
-#### Advanced installer options
-
-```bash
-# For kernel 7.x (not guaranteed, use at your own risk)
-sudo ./install.sh --force
-
-# If you already installed dependencies manually
-sudo ./install.sh --skip-deps
-
-# View full help
-sudo ./install.sh --help
-```
-
-### Method 2: Manual Installation
-
-For advanced users or unsupported distributions:
-
-#### 2.1. Install dependencies
-
-```bash
-# Debian/Ubuntu
-sudo apt-get update
-sudo apt-get install -y dkms build-essential linux-headers-$(uname -r)
-
-# Fedora/RHEL
-sudo dnf install -y dkms make gcc kernel-devel kernel-headers
-
-# Arch
-sudo pacman -S dkms base-devel linux-headers
-
-# Alpine
-sudo apk update && sudo apk add dkms build-base linux-headers
-```
-
-#### 2.2. Copy firmware
-
-```bash
-# Clean old firmware (IMPORTANT)
-sudo rm -rf /lib/firmware/aic8800*
-
-# Copy new firmware
-sudo cp -r ./fw/aic8800D80 /lib/firmware/
-```
-
-#### 2.3. Copy udev rules
-
-```bash
-sudo cp aic.rules /usr/lib/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-#### 2.4. Compile and install with DKMS
-
-```bash
-# Navigate to driver directory
-cd drivers/aic8800
-
-# Compile
-make
-
-# Install
-sudo make install
-
-# (Optional) Generate DKMS config if not present
-sudo dkms add -m aic8800 -v 1.0.0
-sudo dkms build -m aic8800 -v 1.0.0
-sudo dkms install -m aic8800 -v 1.0.0
-```
-
----
-
-## 💻 Usage / Quickstart
-
-### Load the driver
-
-```bash
-# Load module manually
-sudo modprobe aic8800_fdrv
-```
-
-The driver will load automatically on boot after installation.
-
-### Verify it's working
-
-```bash
-# Verify module is loaded
-lsmod | grep aic
-
-# You should see something like:
-# aic8800_fdrv    536576  0
-# cfg80211       1146880  1 aic8800_fdrv
-# aic_load_fw     69632  1 aic8800_fdrv
-```
-
-### Search and connect to Wi-Fi networks
-
-```bash
-# List available network interfaces
-iwconfig
-
-# Using NetworkManager (GNOME/KDE)
-nmcli device
-nmcli connection up <SSID>
-
-# Using iwd (more modern alternative)
-iwctl station wlan0 connect <SSID>
-```
-
-### Troubleshoot issues
-
-```bash
-# View kernel logs in real-time
-sudo dmesg -w | grep aic
-
-# Check detailed driver status
-cat /sys/class/net/wlan0/phy80211/name
-
-# Check if device is in download/load mode
-lsusb | grep aic
-```
-
----
-
-## ⚙️ Configuration
-
-### Driver parameters
-
-The driver loads configuration files from the `fw/` folder:
-
-```
-fw/
-├── aic8800D80/          # Standard variant
-│   ├── aic_userconfig_8800d80.txt
-│   ├── aic_powerlimit_8800d80.txt
-│   └── (other firmware files)
-├── aic8800D80N/         # N variant
-├── aic8800D80X2/        # X2 variant
-├── aic8800DC/           # DC variant
-└── aic8800DLN/          # DLN variant
-```
-
-To use a specific configuration, edit the appropriate `aic_userconfig_*.txt` file before installing.
-
-### Kernel module variables
-
-After installation, you can adjust parameters when loading the module:
-
-```bash
-# Example: load with custom firmware path
-sudo modprobe aic8800_fdrv aic_fw_path=/custom/fw/path
-
-# View all available parameters
-modinfo aic8800_fdrv
-```
-
-### Uninstall the driver
-
-```bash
-# If installed with DKMS
-sudo dkms remove aic8800/1.0.0 --all
-sudo rm -rf /lib/firmware/aic8800*
-sudo rm /usr/lib/udev/rules.d/aic.rules
-sudo udevadm control --reload-rules
-
-# If installed manually
-cd drivers/aic8800
-sudo make uninstall
-```
-
----
-
-## 📁 Project Structure
-
-```
-aic8800d80/
-├── install.sh                    # Universal automatic installer
-├── diagnostic_build.sh           # Diagnostic script
-├── dkms.conf                     # DKMS configuration
-├── README.md                     # This file
-├── drivers/
-│   └── aic8800/
-│       ├── Makefile              # Main build script
-│       ├── aic_load_fw/          # Firmware loader module
-│       │   ├── aic_bluetooth_main.c
-│       │   ├── aicwf_usb.c
-│       │   └── (+ compatibility files)
-│       └── aic8800_fdrv/         # Wi-Fi driver module
-│           ├── rwnx_main.c       # Entry point
-│           ├── rwnx_tx.c         # Transmission
-│           ├── rwnx_rx.c         # Reception
-│           └── (+ support files)
-├── fw/                           # Binary firmware
-│   ├── aic8800D80/
-│   ├── aic8800D80N/
-│   ├── aic8800D80X2/
-│   ├── aic8800DC/
-│   └── aic8800DLN/
-├── aic.rules                     # udev rules
-├── usb_modeswitch/              # USB mode switching config
-└── bazzite/                      # Bazzite packaging (rpm-ostree)
-```
-
-### Main modules
-
-- **aic_load_fw**: Loads firmware to USB device and manages Bluetooth
-- **aic8800_fdrv**: Main Wi-Fi driver that interacts with cfg80211 and mac80211
-
----
-
-## 🧪 Tests and Diagnostics
-
-### Run full diagnostic
-
-```bash
-# Script checks structure, DKMS, firmware, and kernel
-chmod +x diagnostic_build.sh
-sudo ./diagnostic_build.sh
-```
-
-This script validates:
-- ✅ Presence of build files
-- ✅ DKMS configuration
-- ✅ Firmware installed correctly
-- ✅ Kernel and tool compatibility
-- ✅ Build logs (if present)
-
-### Test manual compilation
-
-```bash
-cd drivers/aic8800
-make clean
-make VERBOSE=1  # Show compilation details
-```
-
----
-
-## 🤝 Contribution
-
-Contributions are welcome. To contribute:
-
-### 1. Fork the project
-
-```bash
-git clone https://github.com/RicknotDev/aic8800d80.git
-cd aic8800d80
-```
-
-### 2. Create a branch for your feature
-
-```bash
-git checkout -b feature/my-improvement
-```
-
-### 3. Make commits with clear messages
-
-```bash
-git commit -m "feat: add kernel 7.x support"
-git commit -m "fix: resolve Alpine loading issue"
-```
-
-### 4. Push changes and create a Pull Request
-
-```bash
-git push origin feature/my-improvement
-```
-
-Then open a PR on GitHub describing:
-- What problem it solves
-- How it was tested
-- Any behavior changes
-
-### Code conventions
-
-- Use **4 spaces** for C indentation
-- Follow existing Linux kernel code style
-- Avoid massive formatting changes in feature PRs
-- Include comments for non-obvious code
-
----
-
-## 📅 Roadmap
-
-- [ ] Complete tested support for kernel 7.x
-- [ ] Production-ready Bluetooth driver (see `bluetooth` branch)
-- [ ] Native packaging for more distros (Debian, Fedora RPM)
-- [ ] Web-based configuration for driver parameters
-- [ ] Automated CI/CD tests
-- [ ] Internal API documentation
-
----
-
-## 📜 License and Credits
+# AIC8800 Linux Wi-Fi and Bluetooth Driver
+This driver is for the AIC8800D80 chipset, supported by devices such as the Tenda U11 and AX913B.
+
+> [!NOTE]
+> **About this fork:** this repository is maintained by
+> [RicknotDev](https://github.com/RicknotDev) and follows
+> [shenmintao/aic8800d80](https://github.com/shenmintao/aic8800d80). It only has
+> a `main` branch for now, so MCU1 devices need the upstream `legacy-mcu1`
+> branch linked below. Issue links in this file point to upstream.
+>
+> **Sobre este fork:** este repositorio lo mantiene
+> [RicknotDev](https://github.com/RicknotDev) y sigue a
+> [shenmintao/aic8800d80](https://github.com/shenmintao/aic8800d80). Por ahora
+> solo tiene la rama `main`, así que los dispositivos MCU1 necesitan la rama
+> `legacy-mcu1` de upstream que se enlaza abajo. Los enlaces a issues de este
+> archivo apuntan a upstream.
+>
+> A `chip_mcu_id` value is only valid if no `cmd timed-out` appears before it in
+> the log. / El valor de `chip_mcu_id` solo es válido si antes no aparece
+> `cmd timed-out` en el log.
+
+> [!IMPORTANT]
+> **Choose the branch for your hardware revision before installing.** If the
+> driver log reports `chip_id=7, chip_mcu_id=1` on an AIC8800D80 or
+> AIC8800DC/DW device, use the
+> [`legacy-mcu1`](https://github.com/shenmintao/aic8800d80/tree/legacy-mcu1)
+> branch. It contains the matched legacy firmware and loader profile required
+> to avoid the deterministic firmware upload timeout at `0x170400`. Use
+> `main` when `chip_mcu_id=0` or when the MCU revision is unknown.
+>
+> Hardware revision determines the firmware branch. MCU1 devices should use
+> `legacy-mcu1`, which also initializes Bluetooth for the
+> kernel's standard `btusb` driver. After switching branches, rerun
+> `sudo ./install.sh` and reboot; switching the Git branch alone does not
+> replace the firmware already installed under `/lib/firmware`.
+>
+> If `chip_mcu_id` is missing from the log, enable
+> [diagnostic logging](#diagnostic-logging) and repeat device initialization.
+
+Added support for devices with Vendor ID 368B (tested).
+
+Tested on Linux kernel 6.16 with Ubuntu 25.04 and 6.1.0.27 with Debian 12.
+
+In [issue #110](https://github.com/shenmintao/aic8800d80/issues/110), a user
+reports Wi-Fi and Bluetooth audio working on one generic AX902 adapter
+(`chip_id=7, chip_mcu_id=1`) with Debian 13 and kernel
+`6.12.111+deb13-amd64`, including after reboot and USB reconnection. That
+configuration uses the matched `legacy-mcu1` driver and firmware with the
+kernel's standard `btusb`; it is not a guarantee for other hardware revisions.
+
+> [!NOTE]
+> **Maintained branches:** This repository now maintains two hardware branches:
+> `main` for `chip_mcu_id=0` or an unknown MCU revision, and `legacy-mcu1` for
+> `chip_mcu_id=1`. Wi-Fi, the kernel's standard `btusb` Bluetooth path, and the
+> device-scoped ZLP support are integrated into both branches. The former
+> separate `bluetooth` branch is retired and should no longer be used.
+
+The same driver supports Wi-Fi-only adapters and Wi-Fi/Bluetooth combo
+adapters. On combo devices, `aic_load_fw` uploads the AIC firmware and the
+standard Linux `btusb` driver handles the Bluetooth HCI interface. The obsolete
+custom `aic_btusb` module is not used.
+
+USB device `368b:8d81` also uses the bundled `aic_zlp_quirk` companion module.
+It adds the Bluetooth ACL bulk TX zero-length-packet behavior validated in
+[issue #63](https://github.com/shenmintao/aic8800d80/issues/63), while leaving
+the distribution's original `btusb.ko` installed and bound to the device. The
+quirk is filtered to that VID:PID and fails closed when the required kernel
+probe support is unavailable.
+
+### Disclaimer
+I did not develop this software, The code is sourced from the Tenda U11 driver. I only made some modifications to the code to adapt it to newer kernel versions. Apart from compilation issues, I am unable to address other problems.
 
 ### License
 
-This project is licensed under **GPL v2**. See [LICENSE](./LICENSE) for full details.
+The driver source is distributed under the GNU General Public License version 2
+(`GPL-2.0-only`); see [LICENSE](LICENSE). Preserve the copyright and license
+notices in individual files.
 
-### Maintainer
+The license text is copied verbatim from Radxa's
+[`src/LICENSE`](https://github.com/radxa-pkg/aic8800/blob/969601fd69b5c33f965558c9e90633067733e8c1/src/LICENSE).
+The [upstream licensing commit](https://github.com/radxa-pkg/aic8800/commit/969601fd69b5c33f965558c9e90633067733e8c1)
+records AIC's approval to license the released driver source under GPLv2.
+Radxa's [current copyright metadata](https://github.com/radxa-pkg/aic8800/blob/d13d07963cd15d731e2895e8288a04cca6152ac9/debian/copyright)
+assigns GPL-2 to `src/*` and the same license to driver patches; its root
+GPL-3.0-or-later license covers Radxa's packaging files.
 
-- **[RicknotDev](https://github.com/RicknotDev)** — Adaptation, compatibility, and maintenance
+### Attention
+Before installing the driver, delete all aic8800-related folders under /lib/firmware. Using an incorrect firmware version may cause the system to freeze.
 
-### Credits
+#### Pandora 88M80 mode switching
 
-This driver is based on the original AIC8800D80 driver code. Modifications include:
-- Adaptation for recent Linux kernels
-- Support for multiple distributions
-- Automatic installation with DKMS
-- Improvements in compatibility and diagnostics
+Pandora 88M80 adapters that initially appear as USB device `1111:1111` are
+automatically switched to `a69c:8d80` by sending the required `F3` then `F2`
+commands. Existing users must rerun `sudo ./install.sh` to replace the installed
+usb_modeswitch configuration, then unplug the adapter completely and plug it
+back in.
 
-### Bluetooth branch
+Automatic switching requires the USB product string to start with `88M80`.
+Unrelated flash disks also use `1111:1111`, so that USB ID alone is not enough.
+If your adapter reports a different product string, verify its identity before
+trying the manual command below.
 
-For Bluetooth support, see the [bluetooth branch](https://github.com/RicknotDev/aic8800d80/tree/bluetooth) of this project.
-
----
-
----
-
-<div align="center">
-
-# 🌐 SECCIÓN EN ESPAÑOL
-
-</div>
-
----
-
-# 🛜 Driver AIC8800D80 para Linux
-
-[![Licencia: GPL v2](https://img.shields.io/badge/Licencia-GPLv2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.es.html)
-[![Soporte de Kernel](https://img.shields.io/badge/Kernel-6.x-green.svg)](https://kernel.org/)
-[![Distros Soportadas](https://img.shields.io/badge/Distros-8-blueviolet.svg)](#-compatibilidad--distros-y-gestores-de-paquetes)
-[![Lenguaje](https://img.shields.io/badge/Lenguaje-C-00599C.svg)](https://es.wikipedia.org/wiki/C_(lenguaje_de_programaci%C3%B3n))
-[![Mantenido por](https://img.shields.io/badge/Mantenido%20por-RicknotDev-brightgreen)](https://github.com/RicknotDev)
-
-Driver universal de Linux para chipsets Wi-Fi AIC8800D80 con soporte DKMS y multi-distribución.
-
----
-
-## 📋 Descripción
-
-Este proyecto proporciona un **driver completo de kernel** para dispositivos Wi-Fi basados en el chipset **AIC8800D80**, compatible con tarjetas como Tenda U11 y AX913B. El driver incluye:
-
-- **Instalación automática** mediante DKMS para mantener compatibilidad después de actualizaciones de kernel
-- **Soporte multiplataforma** para 8 distribuciones Linux principales
-- **Firmware integrado** con configuraciones para múltiples variantes de chipset
-- **Reglas udev automáticas** para mejor integración del sistema
-
-### ¿Por qué usar este driver?
-
-- ✅ Compatible con kernels **6.x** (7.x con `--force`)
-- ✅ Instalación **automática** en Debian, Fedora, Arch, Alpine y más
-- ✅ **Sin dependencias ocultas** — detecta automáticamente lo que necesitas
-- ✅ Soporte para **Vendor ID 368B** (clones Pandora)
-- ✅ **DKMS integrado** — se reinstala automáticamente tras actualizar el kernel
-
----
-
-## ⚡ Características Principales
-
-- 🔧 **Instalación automática con DKMS** — se recompila tras actualizaciones de kernel
-- 📦 **Firmware preempaquetado** para variantes D80, D80N, D80X2, DC, DLN
-- 🐧 **8 distribuciones soportadas** — Debian, Fedora, Arch, Alpine, Void, Solus, openSUSE, CentOS
-- 🛡️ **Detección de Secure Boot** — advierte si puede afectar la carga del módulo
-- 🔌 **Reglas udev integradas** — soporte para modos de cambio USB automático
-- 📊 **Logs detallados** — instalación con mensajes de diagnóstico claros
-- ⏭️ **Compatibilidad de kernel** — verificación automática de versión antes de instalar
-
----
-
-## 📊 Compatibilidad — Distros y Gestores de Paquetes
-
-| Distribución         | Gestor de paquetes | Estado         | Notas                          |
-|----------------------|--------------------|----------------|--------------------------------|
-| Debian / Ubuntu      | apt                | ✅ Estable     | Probado en Ubuntu 25.04, Debian 12 |
-| Fedora / RHEL        | dnf                | ✅ Estable     | RHEL 8+ compatible             |
-| CentOS / RHEL legacy | yum                | ✅ Estable     | Requiere EPEL habilitado       |
-| Arch Linux           | pacman             | ✅ Estable     | Incluye linux-headers          |
-| openSUSE             | zypper             | ✅ Estable     | Leap y Tumbleweed             |
-| Alpine Linux         | apk                | ✅ Estable     | Requiere edge repository       |
-| Void Linux           | xbps-install       | ✅ Estable     | Compilación desde source       |
-| Solus                | eopkg              | ✅ Estable     | Soporte experimental           |
-
-### ℹ️ Distribuciones no detectadas
-
-Si tu distro no está listada, puedes instalar las dependencias manualmente y luego ejecutar:
+If automatic switching does not occur, try the same sequence manually:
 
 ```bash
-sudo ./install.sh --skip-deps
+sudo usb_modeswitch -v 1111 -p 1111 \
+  -M "555342438765432100000000000010fd0000000000000000000000000000f3" \
+  -2 "555342438765432100000000000010fd0000000000000000000000000000f2"
 ```
 
-### Requisitos especiales por distro
+This only addresses switching from `1111:1111` to `a69c:8d80`. If the device
+has reached `a69c:8d80` but firmware startup still fails, see
+[issue #79](https://github.com/shenmintao/aic8800d80/issues/79).
 
-- **Alpine Linux**: Requiere actualizar el repositorio con `edge`
-- **Void Linux / Solus**: El compilador puede tardar más tiempo en la primera ejecución
-- Todas las distros requieren acceso a `sudo` o permiso de root
+### Installation Steps
 
----
+For OpenWrt SDK/buildroot builds, see [OpenWrt build notes](OPENWRT.md).
+OpenWrt can use a newer cfg80211 backport than its target kernel; these builds
+must pass the wireless stack version separately.
 
-## 📋 Requisitos Previos
+For Arch-based distributions (Arch, CachyOS, …), see
+[Arch Linux / CachyOS install notes](INSTALL_ARCH.md) — including the AUR/DKMS
+path, matching kernel headers, mode-switch configuration, and module-index
+troubleshooting.
 
-### Software requerido
+#### Method 1: [Quick Installation](INSTALL_SCRIPT.md) (Recommended)
 
-| Componente         | Versión mínima | Propósito                          |
-|--------------------|---|----------------------------------------|
-| Linux Kernel       | 6.0.0          | Sistema operativo base             |
-| DKMS               | 3.0            | Gestor dinámico de módulos kernel  |
-| Compilador (gcc)   | 9.x            | Herramientas de compilación        |
-| Make               | 4.0            | Sistema de construcción            |
-| Linux Headers      | Coincide con kernel | Archivos de desarrollo del kernel |
+#### Method 2: Manual Installation
 
-### Herramientas opcionales
-
-- `mokutil` — para gestión de Secure Boot
-- `udevadm` — para recargar reglas udev (generalmente incluido)
-
-### Espacio en disco
-
-- **Mínimo**: 500 MB (driver + firmware)
-- **Recomendado**: 2 GB (espacio para compilación)
-
----
-
-## 🚀 Instalación
-
-### Método 1: Instalación automática (Recomendado)
-
-La forma más rápida para la mayoría de usuarios:
-
-```bash
-# 1. Clonar el repositorio
-git clone https://github.com/RicknotDev/aic8800d80.git
-cd aic8800d80
-
-# 2. Hacer ejecutable el instalador
-chmod +x install.sh
-
-# 3. Ejecutar la instalación
-sudo ./install.sh
-```
-
-El script detectará tu distro, instalará las dependencias necesarias y configurará DKMS automáticamente.
-
-#### Opciones avanzadas del instalador
-
-```bash
-# Para kernels 7.x (no garantizado, bajo tu propio riesgo)
-sudo ./install.sh --force
-
-# Si ya instalaste las dependencias manualmente
-sudo ./install.sh --skip-deps
-
-# Ver ayuda completa
-sudo ./install.sh --help
-```
-
-### Método 2: Instalación manual
-
-Para usuarios avanzados o distribuciones no detectadas:
-
-#### 2.1. Instalar dependencias
-
-```bash
-# Debian/Ubuntu
-sudo apt-get update
-sudo apt-get install -y dkms build-essential linux-headers-$(uname -r)
-
-# Fedora/RHEL
-sudo dnf install -y dkms make gcc kernel-devel kernel-headers
-
-# Arch
-sudo pacman -S dkms base-devel linux-headers
-
-# Alpine
-sudo apk update && sudo apk add dkms build-base linux-headers
-```
-
-#### 2.2. Copiar firmware
-
-```bash
-# Limpiar firmware antiguo (IMPORTANTE)
-sudo rm -rf /lib/firmware/aic8800*
-
-# Copiar el nuevo firmware
-sudo cp -r ./fw/aic8800D80 /lib/firmware/
-```
-
-#### 2.3. Copiar reglas udev
+#### Copy udev rules:
+Copy the aic.rules file to /usr/lib/udev/rules.d/:
 
 ```bash
 sudo cp aic.rules /usr/lib/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
 ```
 
-#### 2.4. Compilar e instalar con DKMS
+#### Copy firmware:
+
+Copy the firmware directories from `./fw` to `/lib/firmware/`:
 
 ```bash
-# Navegar al directorio del driver
-cd drivers/aic8800
+sudo cp -r ./fw/aic8800* /lib/firmware/
+```
+#### Navigate to the driver directory:
 
-# Compilar
+Change to the drivers/aic8800 directory:
+
+```bash
+cd ./drivers/aic8800
+```
+
+#### Compile and Install the Driver:
+
+First, compile the driver:
+
+```bash
 make
-
-# Instalar
-sudo make install
-
-# (Opcional) Generar DKMS config si no existe
-sudo dkms add -m aic8800 -v 1.0.0
-sudo dkms build -m aic8800 -v 1.0.0
-sudo dkms install -m aic8800 -v 1.0.0
 ```
-
----
-
-## 💻 Uso / Inicio Rápido
-
-### Cargar el driver
+Then, install the driver:
 
 ```bash
-# Cargar el módulo manualmente
+sudo make install
+```
+
+For any kernel updates, you'll need to reinstall the driver:
+
+```bash
+make clean
+make
+sudo make install
+```
+
+### Load the Driver
+After installation, load the driver with the following command:
+
+```bash
 sudo modprobe aic8800_fdrv
 ```
 
-El driver se cargará automáticamente al arrancar después de la instalación.
-
-### Verificar que funciona
+### Verify the Module is Active
+Check if the module is loaded correctly:
 
 ```bash
-# Verificar que el módulo está cargado
 lsmod | grep aic
-
-# Deberías ver algo como:
-# aic8800_fdrv    536576  0
-# cfg80211       1146880  1 aic8800_fdrv
-# aic_load_fw     69632  1 aic8800_fdrv
 ```
-
-### Buscar y conectar a redes Wi-Fi
+You should see output similar to:
 
 ```bash
-# Listar interfaces de red disponibles
+aic8800_fdrv    536576  0
+cfg80211        1146880 1   aic8800_fdrv
+aic_load_fw     69632   1   aic8800_fdrv
+usbcore         348160  10  xhci_hcd,ehci_pci,usbhid,usb_storage,ehci_hcd,xhci_pci,uas,aic_load_fw,uhci_hcd,aic8800_fdrv
+```
+
+After that, plug in your USB wireless network card.
+
+### Verify Wi-Fi Device is Active
+To check if the Wi-Fi interface is recognized, run:
+
+```bash
 iwconfig
-
-# Con NetworkManager (GNOME/KDE)
-nmcli device
-nmcli connection up <SSID>
-
-# Con iwd (alternativa más moderna)
-iwctl station wlan0 connect <SSID>
 ```
-
-### Diagnosticar problemas
+If the device is still not active, check the kernel logs for any errors related to the driver:
 
 ```bash
-# Ver logs del kernel en tiempo real
-sudo dmesg -w | grep aic
-
-# Ver estado detallado del driver
-cat /sys/class/net/wlan0/phy80211/name
-
-# Comprobar si el dispositivo está en modo descarga/carga
-lsusb | grep aic
+sudo dmesg
 ```
 
----
+### Diagnostic Logging
 
-## ⚙️ Configuración
+Both `aic8800_fdrv` and `aic_load_fw` default to `aicwf_dbg_level=1`
+(`LOGERROR`), matching
+[Radxa's logging default](https://github.com/radxa-pkg/aic8800/blob/fce88024ed40279def034e203128e0892fdbcac3/debian/patches/fix-Lower-the-debugging-log-level.patch).
+This changes the driver's log mask; it does not remove the detailed log
+statements or suppress direct `printk()` / `dev_err()` output.
 
-### Parámetros del driver
+Enabling INFO (`0x2`) adds concise Wi-Fi diagnostics:
 
-El driver carga archivos de configuración desde la carpeta `fw/`:
+- A firmware patch-table summary with the file name and number of entries written.
+- For builds without `CONFIG_SUPPORT_4ADDR`, a count of dropped 4-address frames:
+  the first at once, then at most once a minute as more frames arrive.
 
-```
-fw/
-├── aic8800D80/          # Variante estándar
-│   ├── aic_userconfig_8800d80.txt
-│   ├── aic_powerlimit_8800d80.txt
-│   └── (otros archivos de firmware)
-├── aic8800D80N/         # Variante N
-├── aic8800D80X2/        # Variante X2
-├── aic8800DC/           # Variante DC
-└── aic8800DLN/          # Variante DLN
-```
+These routine summaries are hidden at the ERROR-only default. DEBUG (`0x8`)
+adds each patch-table entry and each dropped 4-address frame, including its
+hex dump. Both use `aicwf_dbg_level`; kernel dynamic debug support and a
+module rebuild are not required. Existing error reports retain `LOGERROR`.
 
-Para usar una configuración específica, edita el archivo `aic_userconfig_*.txt` correspondiente a tu variante antes de instalar.
+Some chip-revision, firmware-version and initialization messages use
+`LOGINFO`. Enable detailed logging before reproducing a startup failure or
+checking `chip_mcu_id` for branch selection. Messages suppressed earlier
+cannot be recovered by changing the mask afterward.
 
-### Variables de kernel (módulo)
-
-Después de instalar, puedes ajustar parámetros al cargar el módulo:
+For modules that are already loaded, enable detailed logs without rebuilding:
 
 ```bash
-# Ejemplo: cargar con parámetro de ruta de firmware personalizado
-sudo modprobe aic8800_fdrv aic_fw_path=/custom/fw/path
-
-# Para ver todos los parámetros disponibles
-modinfo aic8800_fdrv
+echo 527 | sudo tee /sys/module/aic8800_fdrv/parameters/aicwf_dbg_level
+echo 15 | sudo tee /sys/module/aic_load_fw/parameters/aicwf_dbg_level
+sudo dmesg -w
 ```
 
-### Desinstalar el driver
+The Wi-Fi mask `527` (`0x20f`) enables ERROR, INFO, TRACE, DEBUG and FW;
+the loader mask `15` (`0x0f`) enables ERROR, INFO, TRACE and DEBUG.
+Reproduce the problem, then save the kernel log with
+`sudo journalctl -k -b --no-pager` or `sudo dmesg`.
+
+To capture messages from module initialization, set the options before the
+modules are loaded:
 
 ```bash
-# Si se instaló con DKMS
-sudo dkms remove aic8800/1.0.0 --all
-sudo rm -rf /lib/firmware/aic8800*
-sudo rm /usr/lib/udev/rules.d/aic.rules
-sudo udevadm control --reload-rules
-
-# Si se instaló manualmente
-cd drivers/aic8800
-sudo make uninstall
+sudo tee /etc/modprobe.d/aic8800-debug.conf >/dev/null <<'EOF'
+options aic8800_fdrv aicwf_dbg_level=527
+options aic_load_fw aicwf_dbg_level=15
+EOF
 ```
 
----
+Reload both modules or reboot, then reproduce the device initialization.
+If the modules load from an initramfs, regenerate that initramfs using your
+distribution's procedure so it includes these options.
 
-## 📁 Estructura del Proyecto
-
-```
-aic8800d80/
-├── install.sh                    # Instalador automático universal
-├── diagnostic_build.sh           # Script de diagnóstico
-├── dkms.conf                     # Configuración de DKMS
-├── README.md                     # Este archivo
-├── drivers/
-│   └── aic8800/
-│       ├── Makefile              # Build script principal
-│       ├── aic_load_fw/          # Módulo de carga de firmware
-│       │   ├── aic_bluetooth_main.c
-│       │   ├── aicwf_usb.c
-│       │   └── (+ archivos de compatibilidad)
-│       └── aic8800_fdrv/         # Módulo de driver Wi-Fi
-│           ├── rwnx_main.c       # Punto de entrada
-│           ├── rwnx_tx.c         # Transmisión
-│           ├── rwnx_rx.c         # Recepción
-│           └── (+ archivos de soporte)
-├── fw/                           # Firmware binario
-│   ├── aic8800D80/
-│   ├── aic8800D80N/
-│   ├── aic8800D80X2/
-│   ├── aic8800DC/
-│   └── aic8800DLN/
-├── aic.rules                     # Reglas udev
-├── usb_modeswitch/              # Configuración de cambio de modo USB
-└── bazzite/                      # Empaquetado para Bazzite (rpm-ostree)
-```
-
-### Módulos principales
-
-- **aic_load_fw**: Carga el firmware en el dispositivo USB y gestiona Bluetooth
-- **aic8800_fdrv**: Driver Wi-Fi principal que interactúa con cfg80211 y mac80211
-
----
-
-## 🧪 Tests y Diagnóstico
-
-### Ejecutar diagnóstico completo
+After collecting the logs, remove the temporary
+`/etc/modprobe.d/aic8800-debug.conf` file and restore the running modules'
+default masks:
 
 ```bash
-# El script verifica estructura, DKMS, firmware, y kernel
-chmod +x diagnostic_build.sh
-sudo ./diagnostic_build.sh
+echo 1 | sudo tee /sys/module/aic8800_fdrv/parameters/aicwf_dbg_level
+echo 1 | sudo tee /sys/module/aic_load_fw/parameters/aicwf_dbg_level
 ```
 
-Este script valida:
-- ✅ Presencia de archivos de compilación
-- ✅ Configuración de DKMS
-- ✅ Firmware instalado correctamente
-- ✅ Compatibilidad de kernel y herramientas
-- ✅ Logs de compilación (si existen)
+If the options were included in an initramfs, regenerate it after removing
+the configuration as well.
 
-### Probar compilación manual
+### Bluetooth on Combo Adapters
+
+Bluetooth support does not require a separate AIC transport module. After
+`aic_load_fw` initializes a combo adapter, the kernel automatically binds its
+Bluetooth interface to `btusb`. A Wi-Fi-only adapter does not expose that
+interface, so the Bluetooth path remains inactive.
+
+Verify the expected modules and controller with:
 
 ```bash
-cd drivers/aic8800
-make clean
-make VERBOSE=1  # Mostrar detalles de compilación
+lsmod | grep -E 'aic_load_fw|aic8800_fdrv|aic_zlp_quirk|btusb'
+lsusb -t
+bluetoothctl list
 ```
 
----
-
-## 🤝 Contribución
-
-Las contribuciones son bienvenidas. Para contribuir:
-
-### 1. Hacer un fork del proyecto
+To scan after a controller appears:
 
 ```bash
-git clone https://github.com/RicknotDev/aic8800d80.git
-cd aic8800d80
+bluetoothctl
+power on
+scan on
 ```
 
-### 2. Crear una rama para tu feature
+If Bluetooth is missing or reports HCI timeouts, run the read-only diagnostic
+script and attach its output together with the current boot log:
 
 ```bash
-git checkout -b feature/mi-mejora
+chmod +x diagnose_bt.sh
+sudo ./diagnose_bt.sh
+sudo journalctl -k -b --no-pager
 ```
 
-### 3. Hacer commits con mensajes claros
+The installer removes active references to the retired `aic_btusb` integration.
+It does not force-load `btusb` or globally change the Bluetooth rfkill state;
+normal kernel device matching and the user's system policy remain in control.
+
+For `368b:8d81`, verify the ZLP hook and its injection counter while Bluetooth
+traffic is active:
 
 ```bash
-git commit -m "feat: añadir soporte para kernel 7.x"
-git commit -m "fix: resolver problema de carga en Alpine"
+cat /sys/module/aic_zlp_quirk/parameters/hook
+cat /sys/module/aic_zlp_quirk/parameters/injections
 ```
 
-### 4. Subir cambios y crear un Pull Request
-
-```bash
-git push origin feature/mi-mejora
-```
-
-Luego abre un PR en GitHub describiendo:
-- Qué problema resuelve
-- Cómo se probó
-- Cambios en comportamiento (si los hay)
-
-### Convenciones de código
-
-- Usa **espacios de 4** para indentación en C
-- Sigue el estilo existente del kernel Linux
-- Evita cambios de formato masivos en PRs de funcionalidad
-- Incluye comentarios para código no obvio
-
----
-
-## 📅 Roadmap
-
-- [ ] Soporte completo y probado para kernel 7.x
-- [ ] Driver Bluetooth de producción (rama `bluetooth`)
-- [ ] Empaquetado nativo para más distros (Debian, Fedora RPM)
-- [ ] Configuración web para parámetros del driver
-- [ ] Tests automatizados en CI/CD
-- [ ] Documentación de API interna
-
----
-
-## 📜 Licencia y Créditos
-
-### Licencia
-
-Este proyecto está bajo licencia **GPL v2**. Ver [LICENSE](./LICENSE) para detalles completos.
-
-### Mantenedor
-
-- **[RicknotDev](https://github.com/RicknotDev)** — Adaptación, compatibilidad y mantenimiento
-
-### Créditos
-
-Este driver está basado en el código original del driver AIC8800D80 de Tenda. Las modificaciones incluyen:
-- Adaptación para kernels Linux más recientes
-- Soporte para múltiples distribuciones
-- Instalación automática con DKMS
-- Mejoras en compatibilidad y diagnóstico
-
-### Rama Bluetooth
-
-Para soporte de Bluetooth, ver la [rama `bluetooth`](https://github.com/RicknotDev/aic8800d80/tree/bluetooth) del proyecto.
-
----
-
-## 📞 Soporte
-
-Si quieres reportar bugs o contribuir, [abre un issue](https://github.com/RicknotDev/aic8800d80/issues) o [envía un PR](https://github.com/RicknotDev/aic8800d80/pulls).
+The Wi-Fi-reset recovery behavior tracked in
+[issue #53](https://github.com/shenmintao/aic8800d80/issues/53) remains a known
+limitation: after an airplane-mode or hotspot reset, Bluetooth may require a
+physical unplug/replug of the adapter.
