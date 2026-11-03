@@ -297,18 +297,6 @@ static void aicwf_usb_rx_complete(struct urb *urb)
         aicwf_usb_rx_buf_put(usb_dev, usb_buf);
         if(urb->status < 0){
             AICWFDBG(LOGDEBUG, "%s urb->status:%d \r\n", __func__, urb->status);
-
-            if(g_rwnx_plat->wait_disconnect_cb == false){
-                g_rwnx_plat->wait_disconnect_cb = true;
-                if(atomic_read(&aicwf_deinit_atomic) > 0){
-                    atomic_set(&aicwf_deinit_atomic, 0);
-                    down(&aicwf_deinit_sem);
-                    AICWFDBG(LOGINFO, "%s need to wait for disconnect callback \r\n", __func__);
-                }else{
-                    g_rwnx_plat->wait_disconnect_cb = false;
-                }
-            }
-
             return;
         }else{
             //schedule_work(&usb_dev->rx_urb_work);
@@ -385,18 +373,6 @@ static void aicwf_usb_rx_complete(struct urb *urb)
         aicwf_usb_rx_buf_put(usb_dev, usb_buf);
 		if(urb->status < 0){
 			AICWFDBG(LOGDEBUG, "%s urb->status:%d \r\n", __func__, urb->status);
-
-			if(g_rwnx_plat->wait_disconnect_cb == false){
-				g_rwnx_plat->wait_disconnect_cb = true;
-				if(atomic_read(&aicwf_deinit_atomic) > 0){
-					atomic_set(&aicwf_deinit_atomic, 0);
-					down(&aicwf_deinit_sem);
-					AICWFDBG(LOGINFO, "%s need to wait for disconnect callback \r\n", __func__);
-				}else{
-					g_rwnx_plat->wait_disconnect_cb = false;
-				}
-			}
-
 			return;
 		}else{
 			//schedule_work(&usb_dev->rx_urb_work);
@@ -1979,10 +1955,6 @@ static void aicwf_usb_bus_stop(struct device *dev)
     if (usb_dev->state == USB_DOWN_ST)
         return;
 
-    if(g_rwnx_plat && g_rwnx_plat->wait_disconnect_cb == true){
-        atomic_set(&aicwf_deinit_atomic, 1);
-        up(&aicwf_deinit_sem);
-    }
     aicwf_usb_state_change(usb_dev, USB_DOWN_ST);
     //aicwf_usb_cancel_all_urbs(usb_dev);//AIDEN
 }
@@ -2341,7 +2313,8 @@ static int aicwf_usb_chipmatch(struct aic_usb_dev *usb_dev, u16_l vid, u16_l pid
 		usb_dev->chipid = PRODUCT_ID_AIC8801;
 		AICWFDBG(LOGINFO, "%s USE AIC8801\r\n", __func__);
 		return 0;
-	}else if(pid == USB_PRODUCT_ID_AIC8800DC || pid == USB_PRODUCT_ID_TENDA
+	}else if(pid == USB_PRODUCT_ID_AIC8800DC || pid == USB_PRODUCT_ID_AIC8800DE
+		|| pid == USB_PRODUCT_ID_TENDA
 		|| pid == USB_PRODUCT_ID_TENDA_U2  || pid == USB_PRODUCT_ID_AIC8800FC_CUS1
 		|| pid == USB_PRODUCT_ID_AIC8800FC_CUS2 || pid == USB_PRODUCT_ID_AIC8800FC_CUS3
 		|| pid == USB_PRODUCT_ID_AIC8800FC_CUS4 || pid == USB_PRODUCT_ID_AIC8800FC_CUS5
@@ -2360,7 +2333,8 @@ static int aicwf_usb_chipmatch(struct aic_usb_dev *usb_dev, u16_l vid, u16_l pid
 		|| pid == USB_PRODUCT_ID_AIC8800M80_CUS3 || pid == USB_PRODUCT_ID_AIC8800M80_CUS4
 		|| pid == USB_PRODUCT_ID_AIC8800M80_CUS5 || pid == USB_PRODUCT_ID_AIC8800M80_CUS6
 		|| pid == USB_PRODUCT_ID_AIC8800M80_CUS7 || pid == USB_PRODUCT_ID_AIC8800M80_CUS8
-        || pid == USB_PRODUCT_ID_AIC8800D80_UGREEN || pid == USB_PRODUCT_ID_MERCURY){
+        || pid == USB_PRODUCT_ID_AIC8800D80_UGREEN || pid == USB_PRODUCT_ID_MERCURY
+        || pid == USB_PRODUCT_ID_TP){
         usb_dev->chipid = PRODUCT_ID_AIC8800D81;
         aicwf_usb_rx_aggr = true;
         AICWFDBG(LOGINFO, "%s USE AIC8800D81\r\n", __func__);
@@ -2670,6 +2644,7 @@ static struct usb_device_id aicwf_usb_id_table[] = {
     {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_AIC, USB_PRODUCT_ID_AIC8800D81, 0xff, 0xff, 0xff)},
     {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_AIC, USB_PRODUCT_ID_AIC8800D41, 0xff, 0xff, 0xff)},
     {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_AIC, USB_PRODUCT_ID_AIC8800DC, 0xff, 0xff, 0xff)},
+    {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_AIC, USB_PRODUCT_ID_AIC8800DE, 0xff, 0xff, 0xff)},
     {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_TENDA_V2, USB_PRODUCT_ID_TENDA_TX1U_NANO, 0xff, 0xff, 0xff)},
     {USB_DEVICE(USB_VENDOR_ID_AIC, USB_PRODUCT_ID_AIC8800DW)},
     {USB_DEVICE(USB_VENDOR_ID_AIC, USB_PRODUCT_ID_AIC8800M80_CUS1)},
@@ -2705,6 +2680,7 @@ static struct usb_device_id aicwf_usb_id_table[] = {
     {USB_DEVICE(USB_VENDOR_ID_AIC_V2, USB_PRODUCT_ID_AIC8800M80_CUS8)},
     {USB_DEVICE(USB_VENDOR_ID_AIC_V2, USB_PRODUCT_ID_AIC8800D80_UGREEN)},
     {USB_DEVICE(USB_VENDOR_ID_TP, USB_PRODUCT_ID_MERCURY)},
+    {USB_DEVICE_AND_INTERFACE_INFO(USB_VENDOR_ID_TP, USB_PRODUCT_ID_TP, 0xff, 0xff, 0xff)},
 #endif
     {}
 };

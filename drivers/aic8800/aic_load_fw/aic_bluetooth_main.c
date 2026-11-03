@@ -9,7 +9,6 @@
 #include "aicwf_txq_prealloc.h"
 
 
-#define DRV_CONFIG_FW_NAME             "fw.bin"
 #define DRV_DESCRIPTION  "AIC BLUETOOTH"
 #define DRV_COPYRIGHT    "Copyright(c) 2015-2020 AICSemi"
 #define DRV_AUTHOR       "AICSemi"
@@ -20,7 +19,7 @@ int adap_test = 0;
 char paringid[100];
 int n_para = 1;
 int ble_scan_wakeup_reboot_time = 1000;
-int aicwf_dbg_level = LOGERROR|LOGINFO|LOGDEBUG|LOGTRACE;
+int aicwf_dbg_level = LOGERROR;
 int flash_erase_len = 0x400000;
 uint32_t ad_data_filter_mask = 0;
 uint32_t gpio_num = 2;//default select gpiob2 for fw_wakeup_host
@@ -75,7 +74,7 @@ MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
 #endif
 
-MODULE_FIRMWARE(DRV_CONFIG_FW_NAME);
+#include "../aicwf_firmware.h"
 MODULE_DESCRIPTION(DRV_DESCRIPTION);
 MODULE_VERSION(DRV_VERS_MOD);
 MODULE_AUTHOR(DRV_COPYRIGHT " " DRV_AUTHOR);

@@ -2,25 +2,55 @@
 
 ## Overview
 
-This automated installation script (`install.sh`) simplifies the process of installing the AIC8800D80 WiFi driver on Linux systems.
+This automated installation script (`install.sh`) installs the AIC8800 Wi-Fi
+driver and firmware loader on Linux systems. Wi-Fi/Bluetooth combo adapters use
+the standard kernel `btusb` driver after firmware initialization. For USB
+device `368b:8d81`, it also installs a device-scoped ACL bulk TX ZLP companion
+module without replacing the distribution's `btusb.ko`.
 
 - Automatic Secure Boot detection
 - Automatic dependency installation
 - Automatic driver compilation and installation
 - Automatic module loading on boot
+- Automatic cleanup of obsolete `aic_btusb` configuration
+- Automatic `aic_zlp_quirk` handling for the validated `368b:8d81` device
+- Wi-Fi-only and Wi-Fi/Bluetooth combo adapter support from the same branch
 - Comprehensive error handling
 - Colored output and logging
-- Compatible with Ubuntu, Debian, Fedora, and derivatives (DKMS supported `dkms.conf`)
+- Compatible with Ubuntu, Debian, Fedora, Arch Linux, and derivatives (DKMS supported `dkms.conf`)
 
 ## Usage
 
 ```bash
 # Clone the repository and download the script, make the script executable
-git clone https://github.com/shenmintao/aic8800d80.git && cd aic8800d80 && chmod +x install.sh
+git clone https://github.com/RicknotDev/aic8800d80.git && cd aic8800d80 && chmod +x install.sh
 
 # Run the installation
 sudo ./install.sh
 ```
+
+On Arch Linux and derivatives, the installer uses the existing pacman package
+database. It does not refresh that database or upgrade the system. If pacman
+cannot download dependencies because the database is stale, run
+`sudo pacman -Syu` yourself, reboot if the kernel was updated, and rerun the
+installer with headers matching the running kernel.
+
+Before replacing installed firmware or DKMS modules, the installer cleans and
+test-builds a temporary copy of the driver for the running kernel. A test-build
+failure leaves the existing firmware, DKMS registration and installed source
+untouched. A successful installation compiles again through DKMS, so this check
+adds build time. Logs are written to `/var/log/aic8800-install.log` with mode
+`0644` after the root check. This check does not provide automatic rollback if a
+later installation step fails.
+
+The USB modules declare the complete firmware set shipped in `fw/`, including
+configuration files and extension patches, so initramfs tools can include those
+files when they include the modules. Rerun the installer after updating the
+driver to rebuild DKMS modules and refresh the current kernel's initramfs.
+If the adapter only works after reloading its modules after boot, check that
+the initramfs contains its `aic8800*/` firmware directory (issue #117).
+Custom firmware paths supplied with `aic_fw_path` still need to be included
+in the initramfs by the administrator.
 
 > For more information, please refer to the [README.md](README.md) file.
 

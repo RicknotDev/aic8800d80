@@ -2748,13 +2748,18 @@ int aicwf_patch_table_load(struct rwnx_hw *rwnx_hw, char *filename)
 	}
 
     if (!err && (i < size)) {
+        int written = 0;
+
         for (i =(128/4); i < (size/4); i +=2) {
-            AICWFDBG(LOGERROR, "patch_tbl:  %x  %x\n", dst[i], dst[i+1]);
+            AICWFDBG(LOGDEBUG, "patch_tbl:  %x  %x\n", dst[i], dst[i+1]);
             err = rwnx_send_dbg_mem_write_req(rwnx_hw, dst[i], dst[i+1]);
+            if (!err)
+                written++;
         }
         if (err) {
             AICWFDBG(LOGERROR, "bin upload fail: %x, err:%d\r\n", dst[i], err);
         }
+        AICWFDBG(LOGINFO, "patch_tbl: %s: %d entries written (each at debug level)\n", filename, written);
     }
 
     if (dst) {
@@ -3759,7 +3764,7 @@ void system_config_8800dc(struct rwnx_hw *rwnx_hw){
     }
     chip_sub_id = (u8)(rd_mem_addr_cfm.memdata);
     //printk("%x=%x\n", rd_mem_addr_cfm.memaddr, rd_mem_addr_cfm.memdata);
-	AICWFDBG(LOGINFO, "chip_id=%x, chip_sub_id=%x\n", chip_id, chip_sub_id);
+	AICWFDBG(LOGINFO, "chip_id=%x, chip_mcu_id=%x, chip_sub_id=%x\n", chip_id, chip_mcu_id, chip_sub_id);
 
 
 	//Crystal provided by CPU (start)

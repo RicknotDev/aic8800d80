@@ -9,7 +9,7 @@
 # FIX: Corrected DKMS module configuration for aic8800_fdrv
 #############################################################################
 
-set -e  # Exit on error
+set -eE  # Exit on error and run the ERR trap inside functions
 
 # Color definitions
 readonly RED='\033[0;31m'
@@ -24,7 +24,7 @@ readonly DRV_NAME="aic8800"
 readonly DRV_VERSION="1.0.0"
 readonly SRC_DIR="/usr/src/${DRV_NAME}-${DRV_VERSION}"
 readonly MODULE_NAME="aic8800_fdrv"
-readonly LOG_FILE="/tmp/aic8800d80_install.log"
+readonly LOG_FILE="/var/log/aic8800-install.log"
 
 # Script directory (where the script is located)
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,7 +39,7 @@ print_usage() {
 Usage: sudo ./install.sh [options]
 
 Options:
-  --force         Continue installation even if the kernel is newer than tested (7.x)
+  --force         Continue installation even if the kernel is newer than tested (above 7.3)
   --skip-deps     Skip automatic dependency installation and continue if you installed them manually
   --help          Show this help message and exit
 EOF
@@ -76,12 +76,7 @@ parse_args() {
 log_message() {
     local level="$1"
     shift
-    # Garantir que o arquivo de log existe e tem permissões corretas
-    if [ ! -f "$LOG_FILE" ]; then
-        touch "$LOG_FILE" 2>/dev/null || true
-        chmod 666 "$LOG_FILE" 2>/dev/null || true
-    fi
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" >> "$LOG_FILE" 2>/dev/null || true
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" >> "$LOG_FILE"; } 2>/dev/null || true
 }
 
 print_info() {
@@ -110,13 +105,29 @@ print_step() {
     log_message "STEP" "$1"
 }
 
+run_logged() {
+    local description="$1"
+    shift
+    local command_status=0
+
+    "$@" 2>&1 | tee -a "$LOG_FILE"
+    command_status="${PIPESTATUS[0]}"
+    if [ "$command_status" -ne 0 ]; then
+        print_error "$description failed (exit code $command_status)."
+    fi
+
+    return "$command_status"
+}
+
 #############################################################################
 # Error Handling
 #############################################################################
 
 cleanup_on_error() {
-    print_error "Installation failed. Check $LOG_FILE for details."
-    exit 1
+    local exit_code=$?
+    trap - ERR
+    print_error "Installation failed (exit code $exit_code). Check $LOG_FILE for details."
+    exit "$exit_code"
 }
 
 trap cleanup_on_error ERR
@@ -176,7 +187,8 @@ check_secure_boot() {
         echo "  2. Sign the module manually (advanced)"
         echo "  3. Continue installation anyway (module may fail to load)"
         echo ""
-        read -p "Continue installation? (y/N): " choice
+        local choice
+        read -r -p "Continue installation? (y/N): " choice || choice="n"
         if [[ ! "$choice" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled by user."
             exit 0
@@ -193,12 +205,12 @@ check_kernel_version() {
     kernel_version=$(uname -r | cut -d- -f1)
     IFS='.' read -r kernel_major kernel_minor kernel_patch <<< "$kernel_version"
 
-    if [[ "$kernel_major" -ge 7 ]]; then
+    if [[ "$kernel_major" -gt 7 || ( "$kernel_major" -eq 7 && "$kernel_minor" -gt 3 ) ]]; then
         print_warning "Kernel $kernel_version is newer than the tested range for this driver."
-        echo "The driver is tested on kernel 6.x. Kernel 7.x may not be supported and installation may fail."
+        echo "The driver has build fixes through Linux 7.3. Newer kernels may not be supported and installation may fail."
         if [[ "$FORCE_INSTALL" != true ]]; then
             echo "Use --force to continue at your own risk."
-            read -p "Continue installation? (y/N): " choice
+            read -p "Continue installation? (y/N): " choice || choice=""
             if [[ ! "$choice" =~ ^[Yy]$ ]]; then
                 print_info "Installation cancelled by user due to unsupported kernel version."
                 exit 0
@@ -253,6 +265,8 @@ detect_package_manager() {
         echo "  - gcc, make, and other build tools"
         echo "  - linux-headers for your kernel version"
         echo "  - mokutil (optional, for Secure Boot detection)"
+        echo "  - eject"
+        echo "  - usb_modeswitch / usb-modeswitch"
         echo ""
         echo "If you already installed them, run: sudo ./install.sh --skip-deps"
         exit 1
@@ -262,65 +276,122 @@ detect_package_manager() {
     DETECTED_PKG_MANAGER="$pkg_manager"
 }
 
+is_volumio() {
+    if [ -r /etc/os-release ] && grep -Eiq '(^ID="?volumio"?$|^NAME="?volumio"?$|^PRETTY_NAME=.*volumio)' /etc/os-release; then
+        return 0
+    fi
+
+    return 1
+}
+
+kernel_build_tree_available() {
+    local kernel_build_dir="/lib/modules/$(uname -r)/build"
+
+    [ -d "$kernel_build_dir" ] && [ -r "$kernel_build_dir/Makefile" ]
+}
+
 install_dependencies() {
     local pkg_manager="$1"
+    local install_kernel_headers=true
     
     print_step "Installing dependencies..."
+
+    if kernel_build_tree_available; then
+        install_kernel_headers=false
+        print_info "Kernel build tree already exists; skipping generic kernel headers package."
+    elif is_volumio; then
+        install_kernel_headers=false
+        print_info "Volumio detected; skipping generic kernel headers package."
+    fi
     
     case "$pkg_manager" in
         apt)
             print_info "Updating package database..."
-            apt-get update -qq >> "$LOG_FILE" 2>&1
-            
-            print_info "Installing: dkms, build-essential, linux-headers, mokutil..."
-            apt-get install -y dkms build-essential linux-headers-$(uname -r) mokutil >> "$LOG_FILE" 2>&1
+            run_logged "Package database update" apt-get update
+
+            local -a packages=(dkms build-essential mokutil eject usb-modeswitch)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=("linux-headers-$(uname -r)")
+            fi
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
             ;;
             
         dnf)
-            print_info "Installing: dkms, gcc, make, kernel-devel, kernel-headers, mokutil..."
-            dnf install -y dkms make gcc kernel-devel kernel-headers mokutil >> "$LOG_FILE" 2>&1
+            local -a packages=(dkms make gcc mokutil util-linux usb_modeswitch)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(kernel-devel kernel-headers)
+            fi
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" dnf install -y "${packages[@]}"
             ;;
             
         yum)
-            print_info "Installing: dkms, gcc, make, kernel-devel, mokutil..."
-            yum install -y epel-release >> "$LOG_FILE" 2>&1
-            yum install -y dkms make gcc kernel-devel mokutil >> "$LOG_FILE" 2>&1
+            local -a packages=(dkms make gcc mokutil util-linux usb_modeswitch)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(kernel-devel)
+            fi
+            print_info "Enabling EPEL repository..."
+            run_logged "EPEL repository installation" yum install -y epel-release
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" yum install -y "${packages[@]}"
             ;;
             
         pacman)
-            print_info "Syncing package database..."
-            pacman -Sy --noconfirm >> "$LOG_FILE" 2>&1
-            
-            print_info "Installing: dkms, base-devel, linux-headers, mokutil..."
-            pacman -S --noconfirm dkms base-devel linux-headers mokutil >> "$LOG_FILE" 2>&1
+            local -a packages=(dkms base-devel mokutil util-linux usb_modeswitch)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(linux-headers)
+            fi
+            print_info "Installing: ${packages[*]}..."
+            if ! run_logged "Dependency installation" pacman -S --needed --noconfirm "${packages[@]}"; then
+                print_error "Check the pacman errors above. If the package database is stale, run 'sudo pacman -Syu', reboot if the kernel was updated, then rerun this installer."
+                return 1
+            fi
             ;;
             
         zypper)
-            print_info "Installing: dkms, gcc, make, kernel-devel, mokutil..."
-            zypper install -y dkms make gcc kernel-devel mokutil >> "$LOG_FILE" 2>&1
+            local -a packages=(dkms make gcc mokutil util-linux usb_modeswitch)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(kernel-devel)
+            fi
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" zypper --non-interactive install "${packages[@]}"
             ;;
             
         apk)
+            local -a packages=(dkms build-base)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(linux-headers)
+            fi
             print_info "Updating package database..."
-            apk update >> "$LOG_FILE" 2>&1
-            
-            print_info "Installing: dkms, build-base, linux-headers..."
-            apk add --no-cache dkms build-base linux-headers >> "$LOG_FILE" 2>&1
-            ;;            
-        xbps)
-            print_info "Updating package database..."
-            xbps-install -Sy >> "$LOG_FILE" 2>&1
-            
-            print_info "Installing: dkms, gcc, make, linux-headers..."
-            xbps-install -y dkms gcc make linux-headers >> "$LOG_FILE" 2>&1
+            run_logged "Package database update" apk update
+
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" apk add --no-cache "${packages[@]}"
             ;;
-            
+
+        xbps)
+            local -a packages=(dkms gcc make)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(linux-headers)
+            fi
+            print_info "Updating package database..."
+            run_logged "Package database update" xbps-install -Sy
+
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" xbps-install -y "${packages[@]}"
+            ;;
+
         eopkg)
+            local -a packages=(dkms gcc make)
+            if [ "$install_kernel_headers" = true ]; then
+                packages+=(linux-headers)
+            fi
             print_info "Refreshing package database..."
-            eopkg update-repo >> "$LOG_FILE" 2>&1
-            
-            print_info "Installing: dkms, gcc, make, linux-headers..."
-            eopkg install -y dkms gcc make linux-headers >> "$LOG_FILE" 2>&1
+            run_logged "Package database update" eopkg update-repo
+
+            print_info "Installing: ${packages[*]}..."
+            run_logged "Dependency installation" eopkg install -y "${packages[@]}"
             ;;
             
         *)
@@ -332,9 +403,87 @@ install_dependencies() {
     print_success "Dependencies installed successfully."
 }
 
+check_kernel_build_tree() {
+    local kernel_build_dir="/lib/modules/$(uname -r)/build"
+
+    if kernel_build_tree_available; then
+        return 0
+    fi
+
+    print_error "Kernel build directory is missing or incomplete: $kernel_build_dir"
+    echo ""
+    if is_volumio; then
+        echo "Volumio does not use the normal linux-headers package flow."
+        echo "Prepare the kernel source first, then rerun this installer:"
+        echo ""
+        echo "  sudo volumio kernelsource"
+        echo "  sudo ./install.sh"
+    else
+        echo "Install the kernel headers for your running kernel, then rerun this installer."
+    fi
+    echo ""
+    exit 1
+}
+
 #############################################################################
 # Firmware Installation
 #############################################################################
+
+cleanup_legacy_bluetooth_config() {
+    local legacy_conf="/etc/modprobe.d/aic8800-bt.conf"
+    local legacy_udev="/etc/udev/rules.d/90-aic8800-mode-switch.rules"
+    local legacy_package
+    local changed=false
+
+    if [ -f "$legacy_conf" ] && grep -Eq '^[[:space:]]*(softdep|alias)[^#]*aic_btusb([[:space:]]|$)' "$legacy_conf"; then
+        print_info "Removing obsolete aic_btusb directives from $legacy_conf..."
+        if [ ! -f "${legacy_conf}.aic8800-backup" ]; then
+            cp -a "$legacy_conf" "${legacy_conf}.aic8800-backup" >> "$LOG_FILE" 2>&1
+        fi
+        sed -i -E '/^[[:space:]]*(softdep|alias)[^#]*aic_btusb([[:space:]]|$)/d' "$legacy_conf"
+        if ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$legacy_conf"; then
+            rm -f "$legacy_conf"
+        fi
+        changed=true
+    fi
+
+    if [ -f "$legacy_udev" ] && grep -q 'aic_btusb/new_id' "$legacy_udev"; then
+        print_info "Removing obsolete aic_btusb binding rules from $legacy_udev..."
+        if [ ! -f "${legacy_udev}.aic8800-backup" ]; then
+            cp -a "$legacy_udev" "${legacy_udev}.aic8800-backup" >> "$LOG_FILE" 2>&1
+        fi
+        sed -i '/aic_btusb\/new_id/d' "$legacy_udev"
+        changed=true
+    fi
+
+    if lsmod | awk '{print $1}' | grep -qx 'aic_btusb'; then
+        print_info "Unloading obsolete aic_btusb module..."
+        if modprobe -r aic_btusb >> "$LOG_FILE" 2>&1; then
+            changed=true
+        else
+            print_warning "aic_btusb is still in use; reboot or replug the adapter after installation."
+        fi
+    fi
+
+    # Remove the two issue #63 diagnostic DKMS packages before the production
+    # quirk is installed as part of aic8800/1.0.0. A patched btusb may remain
+    # active in memory until reboot, but DKMS restores the distribution module
+    # on disk when its test package is removed.
+    for legacy_package in "btusb-aic-zlp/0.1" "aic-zlp-quirk/0.1"; do
+        if dkms status 2>/dev/null | grep -q "^${legacy_package},"; then
+            print_info "Removing superseded test package ${legacy_package}..."
+            if dkms remove "$legacy_package" --all >> "$LOG_FILE" 2>&1; then
+                changed=true
+            else
+                print_warning "Could not remove ${legacy_package}; remove it manually before reboot."
+            fi
+        fi
+    done
+
+    if [ "$changed" = true ]; then
+        print_success "Legacy Bluetooth configuration cleaned up."
+    fi
+}
 
 install_firmware() {
     print_step "Installing firmware..."
@@ -347,6 +496,24 @@ install_firmware() {
         exit 1
     fi
 
+    # Validate the source before changing any installed firmware or config.
+    local -a fw_dirs=()
+    local fw_dir
+    for fw_dir in "$fw_base"/aic8800*; do
+        [ -d "$fw_dir" ] || continue
+        if [ -z "$(find "$fw_dir" -type f -name '*.bin' -print -quit)" ]; then
+            print_error "No firmware binaries found in $fw_dir; existing firmware has not been changed."
+            exit 1
+        fi
+        fw_dirs+=("$fw_dir")
+    done
+    if [ "${#fw_dirs[@]}" -eq 0 ]; then
+        print_error "No firmware directories found in $fw_base; existing firmware has not been changed."
+        exit 1
+    fi
+
+    cleanup_legacy_bluetooth_config
+
     # Remove old firmware versions
     if [ -d "/lib/firmware" ] && [ -n "$(find /lib/firmware -maxdepth 1 -name 'aic8800*' -type d 2>/dev/null)" ]; then
         print_info "Removing existing firmware..."
@@ -355,7 +522,7 @@ install_firmware() {
 
     # Copy all firmware variants
     print_info "Installing firmware for all chip variants..."
-    for fw_dir in "$fw_base"/aic8800*; do
+    for fw_dir in "${fw_dirs[@]}"; do
         if [ -d "$fw_dir" ]; then
             local fw_name=$(basename "$fw_dir")
             local fw_dest="/lib/firmware/$fw_name"
@@ -363,6 +530,8 @@ install_firmware() {
             cp -r "$fw_dir" "$fw_dest" >> "$LOG_FILE" 2>&1
         fi
     done
+
+    print_success "Firmware installed for all supported chip variants."
 
     # Install udev rules
     local rules_source="${SCRIPT_DIR}/aic.rules"
@@ -429,10 +598,39 @@ BUILT_MODULE_NAME[1]="aic_load_fw"
 BUILT_MODULE_LOCATION[1]="drivers/aic8800/aic_load_fw"
 DEST_MODULE_LOCATION[1]="/updates/dkms"
 
+# Quirk ZLP para Bluetooth ACL bulk TX (somente 368b:8d81)
+BUILT_MODULE_NAME[2]="aic_zlp_quirk"
+BUILT_MODULE_LOCATION[2]="drivers/aic8800/aic_zlp_quirk"
+DEST_MODULE_LOCATION[2]="/updates/dkms"
+
 AUTOINSTALL="yes"
 EOF
     
     print_success "DKMS configuration created."
+}
+
+#############################################################################
+# Pre-flight Build
+#############################################################################
+
+preflight_build() {
+    local build_root kver
+    kver="$(uname -r)"
+    print_step "Test-building the driver for $kver before replacing the existing installation..."
+
+    build_root=$(mktemp -d "${TMPDIR:-/tmp}/aic8800-preflight.XXXXXX")
+    # Use a private copy and clean it so a previous build cannot hide an error.
+    if cp -r "${SCRIPT_DIR}/drivers" "$build_root/" >> "$LOG_FILE" 2>&1 &&
+            make -C "$build_root/drivers/aic8800" KVER="$kver" KDIR="/lib/modules/$kver/build" clean >> "$LOG_FILE" 2>&1 &&
+            make -C "$build_root/drivers/aic8800" KVER="$kver" KDIR="/lib/modules/$kver/build" >> "$LOG_FILE" 2>&1; then
+        rm -rf "$build_root"
+        print_success "Test build succeeded."
+    else
+        rm -rf "$build_root"
+        print_error "Test build failed for kernel $kver. Existing firmware and DKMS installation were not changed."
+        echo "See $LOG_FILE for the compiler output."
+        return 1
+    fi
 }
 
 #############################################################################
@@ -480,33 +678,96 @@ install_via_dkms() {
     
     # Install with DKMS
     print_info "Installing module..."
-    dkms install -m "${DRV_NAME}" -v "${DRV_VERSION}" >> "$LOG_FILE" 2>&1
+    if ! dkms install -m "${DRV_NAME}" -v "${DRV_VERSION}" >> "$LOG_FILE" 2>&1; then
+        if grep -qi "override by specifying --force" "$LOG_FILE"; then
+            print_warning "Existing AIC8800 modules found for this kernel; retrying DKMS install with --force..."
+            dkms install -m "${DRV_NAME}" -v "${DRV_VERSION}" --force >> "$LOG_FILE" 2>&1
+        else
+            print_error "DKMS install failed!"
+            echo ""
+            echo "Please check the log file: $LOG_FILE"
+            exit 1
+        fi
+    fi
     
     print_success "Module installed via DKMS."
     print_info "The driver will automatically rebuild after kernel updates."
 }
 
 #############################################################################
+# Initramfs Refresh
+#############################################################################
+
+refresh_initramfs() {
+    print_step "Refreshing initramfs..."
+
+    if is_volumio; then
+        print_info "Volumio detected; skipping automatic initramfs refresh."
+        return 0
+    fi
+
+    if command -v update-initramfs > /dev/null 2>&1; then
+        print_info "Running update-initramfs for the current kernel..."
+        if update-initramfs -u -k "$(uname -r)" >> "$LOG_FILE" 2>&1; then
+            print_success "Initramfs refreshed successfully."
+        else
+            print_warning "update-initramfs failed; firmware may not be available during early boot."
+        fi
+    elif command -v dracut > /dev/null 2>&1; then
+        print_info "Running dracut for the current kernel..."
+        if dracut -f >> "$LOG_FILE" 2>&1; then
+            print_success "Initramfs refreshed successfully."
+        else
+            print_warning "dracut failed; firmware may not be available during early boot."
+        fi
+    elif command -v mkinitcpio > /dev/null 2>&1; then
+        print_info "Running mkinitcpio presets..."
+        if mkinitcpio -P >> "$LOG_FILE" 2>&1; then
+            print_success "Initramfs refreshed successfully."
+        else
+            print_warning "mkinitcpio failed; firmware may not be available during early boot."
+        fi
+    else
+        print_info "No supported initramfs refresh tool found; skipping."
+    fi
+}
+
+#############################################################################
 # Module Loading
 #############################################################################
 
+aic_zlp_target_present() {
+    local device
+
+    for device in /sys/bus/usb/devices/*; do
+        [ -r "$device/idVendor" ] || continue
+        [ -r "$device/idProduct" ] || continue
+        [ "$(cat "$device/idVendor")" = "368b" ] || continue
+        [ "$(cat "$device/idProduct")" = "8d81" ] || continue
+        return 0
+    done
+
+    return 1
+}
+
 load_module() {
-    print_step "Loading kernel module..."
+    print_step "Loading kernel modules..."
     
     # Update module dependencies
     print_info "Updating module dependencies..."
     depmod -a >> "$LOG_FILE" 2>&1
     
-    # Unload module if already loaded
     if lsmod | grep -q "$MODULE_NAME"; then
-        print_info "Module already loaded. Reloading..."
+        print_info "Wi-Fi module already loaded. Reloading..."
         modprobe -r "$MODULE_NAME" >> "$LOG_FILE" 2>&1 || true
     fi
     
-    # Load the module
+    # aic8800_fdrv depends on aic_load_fw, which initializes both Wi-Fi-only
+    # adapters and the Bluetooth firmware on combo adapters. If a standard HCI
+    # USB interface appears afterwards, the kernel USB modalias loads btusb.
     print_info "Loading $MODULE_NAME..."
     if modprobe "$MODULE_NAME" >> "$LOG_FILE" 2>&1; then
-        print_success "Module loaded successfully."
+        print_success "Wi-Fi module loaded successfully."
         
         # Verify module is loaded
         print_info "Waiting for module to initialize..."
@@ -520,14 +781,29 @@ load_module() {
         done
         
         if [ "$module_loaded" = true ]; then
-            print_success "Module is active in kernel."
+            print_success "Wi-Fi module is active in kernel."
         else
-            print_warning "Module may not be fully initialized yet."
+            print_warning "Wi-Fi module may not be fully initialized yet."
         fi
     else
-        print_warning "Module installed but could not be loaded immediately."
+        print_warning "Wi-Fi module installed but could not be loaded immediately."
         print_info "This may be due to Secure Boot or missing hardware."
         print_info "Try rebooting or check: sudo dmesg | grep aic8800"
+    fi
+
+    print_info "Combo adapters use the standard btusb driver when their Bluetooth interface appears."
+
+    # The module has a USB alias and normally autoloads when 368b:8d81 appears.
+    # Explicitly load it here as well when that device was already present before
+    # DKMS installation and therefore did not generate a new modalias event.
+    if aic_zlp_target_present; then
+        print_info "Loading the 368b:8d81 Bluetooth ACL ZLP quirk..."
+        if modprobe aic_zlp_quirk >> "$LOG_FILE" 2>&1; then
+            print_success "Device-scoped Bluetooth ZLP quirk is active."
+        else
+            print_warning "The ZLP quirk could not attach; system btusb remains unchanged."
+            print_info "Check CONFIG_KPROBES, Secure Boot, and: sudo dmesg | grep aic_zlp_quirk"
+        fi
     fi
 }
 
@@ -548,20 +824,42 @@ verify_installation() {
         print_warning "DKMS status unclear: $dkms_status"
     fi
     
-    # Check if module is loaded
+    # Check if the Wi-Fi module is loaded
     if lsmod | grep -q "$MODULE_NAME"; then
-        print_success "Kernel module is loaded."
-        echo ""
-        lsmod | grep aic
+        print_success "Wi-Fi kernel module is loaded."
     else
-        print_info "Module not currently loaded (this is OK if no hardware is connected)."
+        print_info "Wi-Fi module not currently loaded (this is OK if no hardware is connected)."
     fi
+
+    if lsmod | awk '{print $1}' | grep -qx 'btusb' || compgen -G '/sys/class/bluetooth/hci*' > /dev/null; then
+        print_success "A Bluetooth controller or the standard btusb module is present."
+    else
+        print_info "No Bluetooth controller is present (normal for Wi-Fi-only adapters or when no combo adapter is connected)."
+    fi
+
+    if aic_zlp_target_present; then
+        if lsmod | awk '{print $1}' | grep -qx 'aic_zlp_quirk'; then
+            local zlp_hook="unknown"
+            if [ -r /sys/module/aic_zlp_quirk/parameters/hook ]; then
+                zlp_hook=$(cat /sys/module/aic_zlp_quirk/parameters/hook)
+            fi
+            print_success "Bluetooth ACL ZLP quirk is loaded (hook: $zlp_hook)."
+        else
+            print_warning "USB device 368b:8d81 is present but aic_zlp_quirk is not loaded."
+        fi
+    else
+        print_info "Bluetooth ZLP quirk is installed but inactive (no 368b:8d81 device present)."
+    fi
+
+    echo ""
+    print_info "Loaded AIC modules:"
+    lsmod | grep aic || echo "  (none)"
     
     # Check firmware
     local fw_count=0
     for fw_dir in /lib/firmware/aic8800*; do
         if [ -d "$fw_dir" ]; then
-            ((fw_count++))
+            fw_count=$((fw_count + 1))
         fi
     done
     if [ $fw_count -gt 0 ]; then
@@ -574,6 +872,15 @@ verify_installation() {
     print_info "Checking for wireless interfaces..."
     if command -v iwconfig &> /dev/null; then
         iwconfig 2>/dev/null | grep -E "wlan|IEEE" || echo "No wireless interfaces detected (hardware may not be connected)"
+    fi
+
+    print_info "Checking for Bluetooth interfaces on combo adapters..."
+    if command -v bluetoothctl &> /dev/null; then
+        bluetoothctl list 2>/dev/null || echo "No Bluetooth interfaces detected (normal for Wi-Fi-only adapters)"
+    elif command -v hciconfig &> /dev/null; then
+        hciconfig 2>/dev/null || echo "No Bluetooth interfaces detected (normal for Wi-Fi-only adapters)"
+    else
+        echo "Bluetooth tools not installed (install BlueZ to manage a combo adapter)"
     fi
 }
 
@@ -589,13 +896,15 @@ show_final_instructions() {
     echo ""
     echo -e "${CYAN}Important Information:${NC}"
     echo ""
-    echo "✓ Driver installed via DKMS"
+    echo "✓ Wi-Fi driver and firmware loader installed via DKMS"
+    echo "✓ Combo adapters use the standard Linux btusb driver"
+    echo "✓ Device-scoped Bluetooth ACL ZLP quirk installed for 368b:8d81"
     echo "✓ Automatic rebuild enabled for kernel updates"
     echo "✓ Firmware installed in /lib/firmware/"
     echo ""
     echo -e "${CYAN}Next Steps:${NC}"
     echo ""
-    echo "1. Connect your AIC8800D80 USB WiFi adapter"
+    echo "1. Connect your AIC8800 USB Wi-Fi or Wi-Fi/Bluetooth adapter"
     echo ""
     echo "2. Check if the adapter is detected:"
     echo "   ${BLUE}lsusb | grep -i aic${NC}"
@@ -604,10 +913,15 @@ show_final_instructions() {
     echo ""
     echo "3. View kernel messages about the driver:"
     echo "   ${BLUE}sudo dmesg | grep aic8800${NC}"
+    echo "   ${BLUE}sudo dmesg | grep -iE 'bluetooth|btusb|hci'${NC}"
     echo ""
     echo "4. Connect to a WiFi network:"
     echo "   ${BLUE}nmcli device wifi list${NC}"
     echo "   ${BLUE}nmcli device wifi connect \"SSID\" password \"PASSWORD\"${NC}"
+    echo ""
+    echo "5. For a combo adapter, check Bluetooth:"
+    echo "   ${BLUE}bluetoothctl list${NC}"
+    echo "   ${BLUE}bluetoothctl scan on${NC}"
     echo ""
     echo -e "${CYAN}Troubleshooting:${NC}"
     echo ""
@@ -615,21 +929,21 @@ show_final_instructions() {
     echo "  ${BLUE}dkms status${NC}"
     echo ""
     echo "• Check loaded modules:"
-    echo "  ${BLUE}lsmod | grep aic8800${NC}"
+    echo "  ${BLUE}lsmod | grep -E 'aic|btusb'${NC}"
+    echo "  ${BLUE}cat /sys/module/aic_zlp_quirk/parameters/{hook,injections}${NC}"
     echo ""
-    echo "• Manually load the module:"
+    echo "• Manually load the Wi-Fi module and firmware loader:"
     echo "  ${BLUE}sudo modprobe aic8800_fdrv${NC}"
     echo ""
     echo "• View detailed logs:"
     echo "  ${BLUE}cat $LOG_FILE${NC}"
     echo ""
     echo -e "${YELLOW}Known Limitations:${NC}"
-    echo "• Bluetooth functionality is not supported"
     echo "• Secure Boot may prevent module loading (disable in BIOS if needed)"
     echo ""
     echo -e "${CYAN}Uninstallation:${NC}"
     echo "  ${BLUE}sudo dkms remove ${DRV_NAME}/${DRV_VERSION} --all${NC}"
-    echo "  ${BLUE}sudo rm -rf /lib/firmware/aic8800D80${NC}"
+    echo "  ${BLUE}sudo rm -rf /lib/firmware/aic8800*${NC}"
     echo ""
 }
 
@@ -640,14 +954,17 @@ show_final_instructions() {
 main() {
     parse_args "$@"
 
-    # Initialize log file
-    rm -f "$LOG_FILE" 2>/dev/null || true
-    touch "$LOG_FILE" 2>/dev/null || true
-    chmod 666 "$LOG_FILE" 2>/dev/null || true
-    
+    # Step 1: Check root privileges (before touching the log, which lives in
+    # /var/log and is written by root only)
+    check_root
+
+    # Initialize log file: owned by root, readable by all, never world-writable
+    rm -f "$LOG_FILE"
+    install -m 0644 /dev/null "$LOG_FILE"
+
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════════╗"
-    echo "║     AIC8800D80 WiFi 6 Driver - Universal Installer (DKMS)     ║"
+    echo "║     AIC8800D80 WiFi 6 Driver - Universal Installer (DKMS)      ║"
     echo "║                   Version 2.0.4 (Fixed)                        ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -655,9 +972,6 @@ main() {
     log_message "START" "Installation started"
     log_message "INFO" "Kernel: $(uname -r)"
     log_message "INFO" "Distribution: $(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '"')"
-    
-    # Step 1: Check root privileges
-    check_root
     
     # Step 2: Check Secure Boot
     check_secure_boot
@@ -674,23 +988,30 @@ main() {
     else
         install_dependencies "$DETECTED_PKG_MANAGER"
     fi
-    
-    # Step 6: Install firmware
+
+    # Step 6: Check kernel build tree
+    check_kernel_build_tree
+
+    # Step 7: Test-build before changing installed firmware or DKMS modules
+    preflight_build
     install_firmware
     
-    # Step 6: Create DKMS configuration
+    # Step 8: Create DKMS configuration
     create_dkms_conf
-    
-    # Step 7: Install via DKMS
+
+    # Step 9: Install via DKMS
     install_via_dkms
-    
-    # Step 8: Load the module
+
+    # Step 10: Refresh initramfs
+    refresh_initramfs
+
+    # Step 11: Load the module
     load_module
-    
-    # Step 9: Verify installation
+
+    # Step 12: Verify installation
     verify_installation
-    
-    # Step 10: Show final instructions
+
+    # Step 13: Show final instructions
     show_final_instructions
     
     log_message "END" "Installation completed successfully"
