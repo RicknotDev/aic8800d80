@@ -21,6 +21,7 @@ PRELUDE = r"""
 #define RWNX_80211_CMD_TIMEOUT_MS 2000
 #define EINTR 4
 #define ENOMEM 12
+#define ENODEV 19
 #define EPIPE 32
 #define ETIMEDOUT 110
 #define ERESTARTSYS 512
@@ -28,7 +29,7 @@ PRELUDE = r"""
 
 struct list_head { struct list_head *next, *prev; };
 struct completion { int done; };
-struct lmac_msg { int id; unsigned int param_len; };
+struct lmac_msg { int id; unsigned int param_len; unsigned int param[1]; };
 struct rwnx_cmd {
     struct list_head list;
     int tkn, id, reqid, result;
@@ -42,14 +43,23 @@ struct rwnx_cmd_mgr {
     int state, queue_sz, max_queue_sz, next_tkn, lock;
     struct list_head cmds;
     void *usbdev;
+    int (*queue)(struct rwnx_cmd_mgr *, struct rwnx_cmd *);
 };
+typedef unsigned short lmac_msg_id_t;
+enum { BUS_DOWN_ST, BUS_UP_ST };
+struct aicwf_bus { int state; };
+struct aic_usb_dev { struct aicwf_bus *bus_if; struct rwnx_cmd_mgr cmd_mgr; };
+#define GFP_ATOMIC 0
+#define GFP_KERNEL 0
+#define container_of(ptr, type, member) ((type *)((char *)(ptr) - __builtin_offsetof(type, member)))
 
 static struct rwnx_cmd cmd;
 static struct lmac_msg msg;
 static struct rwnx_cmd_mgr mgr;
 static long wait_result;
 static bool cfm_during_wait;
-static int cmd_frees, msg_frees;
+static int cmd_frees, msg_frees, queued;
+static bool alloc_fails;
 
 #define spin_lock_bh(lock) ((void)(lock))
 #define spin_unlock_bh(lock) ((void)(lock))
@@ -79,6 +89,11 @@ static void kfree(const void *ptr)
         msg_frees++;
     else
         abort();
+}
+static void *kzalloc(unsigned long size, int flags)
+{
+    (void)size; (void)flags;
+    return alloc_fails ? NULL : &cmd;
 }
 static void aicwf_set_cmd_tx(void *dev, struct lmac_msg *m, unsigned int len)
 {
@@ -122,8 +137,34 @@ static void check_released(void)
     CHECK(msg_frees == 1);
 }
 
+static int count_queue(struct rwnx_cmd_mgr *m, struct rwnx_cmd *c)
+{
+    (void)m; (void)c;
+    queued++;
+    return 0;
+}
+
+static int send(int bus_state, bool no_memory)
+{
+    struct aicwf_bus bus = { .state = bus_state };
+    struct aic_usb_dev dev = { .bus_if = &bus, .cmd_mgr.queue = count_queue };
+    unsigned int cfm = 0;
+
+    alloc_fails = no_memory;
+    cmd_frees = msg_frees = queued = 0;
+    return rwnx_send_msg(&dev, msg.param, 1, 0, &cfm);
+}
+
 int main(void)
 {
+    /* Nothing was sent, so the caller must not read the unfilled cfm. */
+    CHECK(send(BUS_DOWN_ST, false) == -ENODEV);
+    CHECK(queued == 0 && msg_frees == 1 && cmd_frees == 0);
+    CHECK(send(BUS_UP_ST, true) == -ENOMEM);
+    CHECK(queued == 0 && msg_frees == 1 && cmd_frees == 0);
+    CHECK(send(BUS_UP_ST, false) == 0);
+    CHECK(queued == 1);
+
     /* A confirmation in time: success. */
     CHECK(run(1, true) == 0);
     CHECK(mgr.state == RWNX_CMD_MGR_STATE_INITED);
@@ -159,7 +200,7 @@ def function(source, signature):
 
 
 class LoaderCommandTimeoutTests(unittest.TestCase):
-    def test_wait_paths(self):
+    def test_send_and_wait_paths(self):
         source = (LOADER / "aicbluetooth_cmds.c").read_text(errors="replace")
         header = (LOADER / "aicbluetooth_cmds.h").read_text(errors="replace")
         defines = re.findall(r"(?m)^#define RWNX_CMD_FLAG_\w+.*$", header)
@@ -167,7 +208,8 @@ class LoaderCommandTimeoutTests(unittest.TestCase):
         self.assertGreater(len(defines), 1)
         code = PRELUDE + "\n".join(defines) + MOCK_WAIT
         for signature in ("static void cmd_dump(", "static void cmd_complete(",
-                          "static int cmd_mgr_queue("):
+                          "static int cmd_mgr_queue(", "static void rwnx_msg_free(",
+                          "static int rwnx_send_msg("):
             code += function(source, signature) + "\n"
         code += CHECKS
         with tempfile.TemporaryDirectory(prefix="aic-cmd-timeout-") as temp:

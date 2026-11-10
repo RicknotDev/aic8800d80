@@ -321,7 +321,7 @@ static int rwnx_send_msg(struct aic_usb_dev *usbdev, const void *msg_params,
     if(usbdev->bus_if->state == BUS_DOWN_ST) {
         rwnx_msg_free(msg, msg_params);
         printk("bus is down\n");
-        return 0;
+        return -ENODEV;
     }
 
     nonblock = 0;
