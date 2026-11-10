@@ -349,7 +349,7 @@ int system_config_8800d80(struct aic_usb_dev *usb_dev){
 		if (chip_mcu_id) {
 			ret = rwnx_send_dbg_mem_read_req(usb_dev, cache_mem_addr, &rd_mem_addr_cfm);
 			if (ret) {
-				printk("%x rd fail: %d\n", mem_addr, ret);
+				printk("%x rd fail: %d\n", cache_mem_addr, ret);
 				return ret;
 			}
 			rd_mem_addr_cfm.memdata |= 0x01;

@@ -98,17 +98,29 @@ static int cmd_mgr_queue(struct rwnx_cmd_mgr *cmd_mgr, struct rwnx_cmd *cmd)
 
     if (!(cmd->flags & RWNX_CMD_FLAG_NONBLOCK)) {
         unsigned long tout = msecs_to_jiffies(RWNX_80211_CMD_TIMEOUT_MS * cmd_mgr->queue_sz);
-        if (!wait_for_completion_killable_timeout(&cmd->complete, tout)) {
-            printk(KERN_CRIT"cmd timed-out\n");
+        long left = wait_for_completion_killable_timeout(&cmd->complete, tout);
 
-            cmd_dump(cmd);
+        if (left <= 0) {
+            int ret;
+
             spin_lock_bh(&cmd_mgr->lock);
-            cmd_mgr->state = RWNX_CMD_MGR_STATE_CRASHED;
-            if (!(cmd->flags & RWNX_CMD_FLAG_DONE)) {
-                cmd->result = -ETIMEDOUT;
-                cmd_complete(cmd_mgr, cmd);
+            /* The CFM may have arrived after the wait ended. */
+            if (cmd->flags & RWNX_CMD_FLAG_DONE) {
+                spin_unlock_bh(&cmd_mgr->lock);
+                kfree(cmd);
+                return 0;
             }
+            cmd_mgr->state = RWNX_CMD_MGR_STATE_CRASHED;
+            ret = left ? (int)left : -ETIMEDOUT;
+            cmd->result = ret;
+            /* WAIT_CFM is still set, so this only unlinks the command. */
+            cmd_complete(cmd_mgr, cmd);
             spin_unlock_bh(&cmd_mgr->lock);
+
+            printk(KERN_CRIT"%s\n", left ? "cmd wait interrupted" : "cmd timed-out");
+            cmd_dump(cmd);
+            kfree(cmd);
+            return ret;
         }
         else{
             kfree(cmd);
@@ -309,11 +321,15 @@ static int rwnx_send_msg(struct aic_usb_dev *usbdev, const void *msg_params,
     if(usbdev->bus_if->state == BUS_DOWN_ST) {
         rwnx_msg_free(msg, msg_params);
         printk("bus is down\n");
-        return 0;
+        return -ENODEV;
     }
 
     nonblock = 0;
     cmd = kzalloc(sizeof(struct rwnx_cmd), nonblock ? GFP_ATOMIC : GFP_KERNEL);
+    if (!cmd) {
+        rwnx_msg_free(msg, msg_params);
+        return -ENOMEM;
+    }
     cmd->result  = -EINTR;
     cmd->id      = msg->id;
     cmd->reqid   = reqid;

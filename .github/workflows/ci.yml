@@ -43,6 +43,7 @@ jobs:
         run: |
           python3 tests/firmware/test_firmware.py
           python3 tests/firmware/test_request_firmware.py
+          python3 tests/firmware/test_loader_cmd_timeout.py
 
   build:
     name: Build on Linux ${{ matrix.kernel }}

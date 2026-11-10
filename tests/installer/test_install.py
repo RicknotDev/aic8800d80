@@ -233,6 +233,18 @@ install_via_dkms() {
         self.assert_installation_preserved(result)
         self.assertEqual(len((self.root / "events").read_text().splitlines()), 1)
 
+    def test_skip_deps_does_not_need_a_known_package_manager(self):
+        stubs = self.prepare_preflight() + r'''
+SKIP_DEPENDENCIES=true
+detect_package_manager() { echo DETECT; return 1; }
+install_dependencies() { echo DEPENDENCIES; }
+'''
+        result = self.run_installer_function("main", stubs)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("DETECT", result.stdout)
+        self.assertNotIn("DEPENDENCIES", result.stdout)
+        self.assertIn("FINAL_INSTRUCTIONS", result.stdout)
+
     def test_preflight_success_precedes_installation_and_cleans_temp(self):
         result = self.run_installer_function("main", self.prepare_preflight())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
