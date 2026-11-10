@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # An early warning: a new kernel can break the build before the driver adapts.
-    continue-on-error: true
+    # It never runs on pull requests, so a failure only marks the scheduled run.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install build tools
